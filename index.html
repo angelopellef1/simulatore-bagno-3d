@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Simulatore 3D Bagno — Piantina 4,68 mq</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="viewport"></canvas>
+
+      <!-- Top HUD: Selezione Stanza + Viste rapide + Foto + Luce -->
+      <header class="top-bar">
+        <div class="brand">
+          <div class="brand-badge">3D</div>
+          <div>
+            <div class="brand-row">
+              <h1>Simulatore Bagno</h1>
+              <div class="room-switcher" id="room-switcher" role="tablist" aria-label="Seleziona stanza bagno">
+                <button type="button" class="room-btn active" data-room="ground">Pianterreno · 4,68 mq</button>
+                <button type="button" class="room-btn" data-room="first">Primo Piano · 5,55 mq</button>
+              </div>
+            </div>
+            <p id="room-subtitle">Piantina Pianterreno · <strong>4,68 mq</strong> (190×280 / 136×90 · r.a.i. 0,214)</p>
+          </div>
+        </div>
+
+        <div class="camera-bar" role="toolbar" aria-label="Viste telecamera">
+          <button class="cam-btn active" data-preset="entry" title="Vista dall'ingresso in prima persona (1)">
+            <span>🚶</span> Ingresso
+          </button>
+          <button class="cam-btn" data-preset="vanity" title="Vista fronte mobile bagno (2)">
+            <span>🪞</span> Mobile
+          </button>
+          <button class="cam-btn" data-preset="sanitary" title="Vista sanitari WC e Bidet a sinistra (3)">
+            <span>🚽</span> Sanitari
+          </button>
+          <button class="cam-btn" data-preset="shower" id="btn-preset-shower" style="display:none" title="Vista box doccia 80×80 (5)">
+            <span>🚿</span> Doccia
+          </button>
+          <button class="cam-btn" data-preset="orbit" title="Vista spaccato 3D dall'alto (4)">
+            <span>🏠</span> Spaccato 3D
+          </button>
+          <span class="divider"></span>
+          <button class="cam-btn" id="btn-lighting" title="Alterna luce Giorno / Sera">
+            <span id="lighting-icon">☀️</span> <span id="lighting-label">Giorno</span>
+          </button>
+          <label class="light-slider-wrap" title="Regola intensità luce">
+            <span>🔆</span>
+            <input id="exposure-slider" type="range" min="45" max="125" value="78" />
+          </label>
+          <button class="cam-btn" id="btn-door" title="Apri / Chiudi porta in legno 80×210">
+            <span>🚪</span> Porta
+          </button>
+          <button class="cam-btn photo-btn" id="btn-download-photo" title="Scarica foto PNG della vista 3D attiva">
+            <span>📷</span> Scarica Foto
+          </button>
+          <button class="cam-btn" id="btn-toggle-panel" title="Mostra / Nascondi pannello materiali">
+            <span>🎨</span> Pannello
+          </button>
+        </div>
+      </header>
+
+      <div id="toast-msg" class="toast-msg" aria-live="polite"></div>
+
+      <!-- Pannello Configuratore Laterale -->
+      <aside class="config-panel" id="config-panel">
+        <div class="saved-sync-bar">
+          <span class="saved-indicator" id="saved-indicator">💾 Scelte salvate automaticamente</span>
+          <button type="button" class="copy-room-btn" id="btn-copy-other-room" title="Copia pavimenti, rivestimenti e mobile dall'altro bagno">
+            📋 Copia dall'altro bagno
+          </button>
+        </div>
+        <div class="panel-tabs" role="tablist">
+          <button class="tab-btn active" data-tab="floors" role="tab">Pavimento</button>
+          <button class="tab-btn" data-tab="walls" role="tab">Rivestimenti</button>
+          <button class="tab-btn" data-tab="vanity" role="tab">Mobile Bagno</button>
+        </div>
+
+        <!-- TAB PAVIMENTO -->
+        <section class="tab-content active" id="tab-floors">
+          <div class="section-header">
+            <h2>Gres Porcellanato Pavimento</h2>
+            <span class="badge-dim">Catalogo Tecnomat</span>
+          </div>
+          <div id="floor-catalog-mount"></div>
+        </section>
+
+        <!-- TAB RIVESTIMENTI -->
+        <section class="tab-content" id="tab-walls">
+          <div class="section-header">
+            <h2>Gres & Rivestimenti Pareti</h2>
+            <span class="badge-dim">Catalogo Tecnomat</span>
+          </div>
+
+          <!-- Selettore sotto-zona: Pareti Generali vs Area Mobile & Specchio -->
+          <div class="zone-switch" id="wall-zone-switch">
+            <button type="button" class="zone-btn active" data-zone="main">
+              🧱 Pareti Generali
+            </button>
+            <button type="button" class="zone-btn" data-zone="vanity">
+              🪞 Area Mobile <span class="zone-dot" id="vanity-zone-dot" style="display:none"></span>
+            </button>
+          </div>
+
+          <!-- PANE 1: PARETI GENERALI -->
+          <div id="wall-zone-main">
+            <div class="wall-top-options">
+              <label class="sub-label">Altezza posa piastrelle</label>
+              <div class="pill-group" id="tile-height-group">
+                <button class="pill-btn" data-height="full">Tutta altezza (270)</button>
+                <button class="pill-btn active" data-height="door">Filo porta (210)</button>
+                <button class="pill-btn" data-height="half">Boiserie (120)</button>
+              </div>
+              <div class="paint-inline" id="paint-color-section">
+                <span class="sub-label-inline">Pittura:</span>
+                <div class="color-dots compact" id="paint-colors"></div>
+              </div>
+            </div>
+
+            <div id="wall-catalog-mount"></div>
+          </div>
+
+          <!-- PANE 2: AREA MOBILE & SPECCHIO -->
+          <div id="wall-zone-vanity" style="display:none">
+            <div class="wall-top-options">
+              <div class="accent-toggle-row">
+                <div>
+                  <div class="accent-toggle-title">Rivestimento dedicato Mobile</div>
+                  <div class="accent-toggle-sub" id="accent-status-label">Usa stesso rivestimento delle pareti</div>
+                </div>
+                <button type="button" class="pill-btn accent-enable-btn" id="btn-toggle-vanity-wall">
+                  Attiva
+                </button>
+              </div>
+
+              <label class="sub-label" style="margin-top:9px">Estensione larghezza parete</label>
+              <div class="pill-group" id="vanity-span-group">
+                <button class="pill-btn active" data-span="window-to-wall" title="Dal bordo destro della finestra fino all'angolo del muro">
+                  Da finestra a muro (155 cm)
+                </button>
+                <button class="pill-btn" data-span="centered" title="Fascia centrata dietro mobile e specchio">
+                  Mobile +15 cm (130 cm)
+                </button>
+              </div>
+
+              <label class="sub-label" style="margin-top:9px">Altezza rivestimento zona mobile</label>
+              <div class="pill-group" id="vanity-height-group">
+                <button class="pill-btn active" data-vheight="same">Come altre pareti</button>
+                <button class="pill-btn" data-vheight="full">Tutta altezza (270)</button>
+              </div>
+            </div>
+
+            <div id="vanity-wall-catalog-mount"></div>
+          </div>
+        </section>
+
+        <!-- TAB MOBILE BAGNO -->
+        <section class="tab-content" id="tab-vanity">
+          <div class="section-header">
+            <h2>Modello Mobile Bagno</h2>
+            <span class="badge-dim" id="vanity-wall-badge">Destra finestra (155 cm)</span>
+          </div>
+          <div class="model-list" id="vanity-models"></div>
+
+          <div class="sub-section">
+            <label class="sub-label">Finitura Mobile</label>
+            <div class="color-dots" id="vanity-finishes"></div>
+          </div>
+
+          <div class="sub-section">
+            <label class="sub-label">Finitura Rubinetteria & Dettagli</label>
+            <div class="pill-group" id="metal-finish-group">
+              <button class="pill-btn active" data-metal="chrome">Cromo</button>
+              <button class="pill-btn" data-metal="black">Nero Opaco</button>
+              <button class="pill-btn" data-metal="brass">Ottone</button>
+            </div>
+          </div>
+        </section>
+      </aside>
+
+      <!-- Mini-piantina 2D interattiva con quote catastali -->
+      <div class="minimap-card" title="Clicca sulla piantina per spostarti in quel punto">
+        <div class="minimap-header">
+          <span>Piantina Bagno (cm)</span>
+          <span id="coords-readout">Prima persona</span>
+        </div>
+        <canvas id="minimap" width="190" height="235"></canvas>
+      </div>
+
+      <!-- Controlli su schermo (Freccette + Guida comandi) -->
+      <div class="nav-hud">
+        <div class="dpad" aria-label="Controlli movimento">
+          <button class="dpad-btn up" data-move="forward" title="Avanti (Freccia Su / W)">▲</button>
+          <button class="dpad-btn left" data-move="turnLeft" title="Ruota a sinistra (Freccia Sinistra)">◀</button>
+          <button class="dpad-btn down" data-move="backward" title="Indietro (Freccia Giù / S)">▼</button>
+          <button class="dpad-btn right" data-move="turnRight" title="Ruota a destra (Freccia Destra)">▶</button>
+        </div>
+        <div class="nav-help">
+          <div><kbd>▲</kbd> <kbd>▼</kbd> Cammina · <kbd>◀</kbd> <kbd>▶</kbd> Ruota visuale</div>
+          <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Movimento libero · <strong>Mouse</strong> Trascina visuale · <strong>Rotella</strong> Zoom</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
