@@ -7,3 +7,15 @@
   to = "https://www.tecnomat.it/pub/media/catalog/product/:splat"
   status = 200
   force = true
+
+[[redirects]]
+  from = "/baucer-media/*"
+  to = "https://www.progettobaucer.it/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/armonie-media/*"
+  to = "https://www.armonieceramiche.com/:splat"
+  status = 200
+  force = true

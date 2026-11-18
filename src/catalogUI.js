@@ -1,5 +1,15 @@
+import { getCatalogItemKey, getCatalogItemThumbUrl } from './textures.js';
+
+const BRAND_OPTIONS = [
+  { id: 'ALL', label: 'Tutti i cataloghi', short: 'Tutti' },
+  { id: 'tecnomat', label: 'Tecnomat', short: 'Tecnomat' },
+  { id: 'baucer', label: 'Progetto Baucer', short: 'Baucer' },
+  { id: 'armonie', label: 'Armonie Ceramiche', short: 'Armonie' },
+  { id: 'PRESETS', label: 'Preset Procedurali Base', short: 'Preset 3D' },
+];
+
 const EFFECT_FILTERS = [
-  { id: 'ALL', label: 'Tutti Tecnomat' },
+  { id: 'ALL', label: 'Tutti gli effetti' },
   { id: 'Legno', label: 'Legno' },
   { id: 'Marmo', label: 'Marmo' },
   { id: 'Pietra', label: 'Pietra' },
@@ -7,8 +17,13 @@ const EFFECT_FILTERS = [
   { id: 'Design e Monocolore', label: 'Design / Colore' },
   { id: 'Cotto e Mattone', label: 'Cotto / Mattone' },
   { id: 'Mosaico', label: 'Mosaico' },
-  { id: 'PRESETS', label: 'Preset Base' },
 ];
+
+const BRAND_LABELS = {
+  tecnomat: 'Tecnomat',
+  baucer: 'Progetto Baucer',
+  armonie: 'Armonie',
+};
 
 const PAGE_STEP = 24;
 
@@ -29,11 +44,15 @@ export class CatalogSelector {
     this.onApplyBundle = onApplyBundle;
     this.onSelectionChange = onSelectionChange;
 
-    this.bySku = new Map();
+    this.byKey = new Map();
+    this.brandCounts = { tecnomat: 0, baucer: 0, armonie: 0 };
     for (const it of catalogItems) {
-      this.bySku.set(String(it.sku), it);
+      const b = it.brand || 'tecnomat';
+      this.brandCounts[b] = (this.brandCounts[b] || 0) + 1;
+      this.byKey.set(getCatalogItemKey(it), it);
     }
 
+    this.brand = 'ALL';
     this.query = '';
     this.effect = 'ALL';
     this.format = 'ALL';
@@ -47,15 +66,14 @@ export class CatalogSelector {
     this.activeMeta = {
       title: initialPreset.name,
       sub: initialPreset.subtitle,
+      brandLabel: null,
       sku: null,
       url: null,
       thumb: this.currentBaseBundle.previewUrl,
     };
 
-    this.formatsList = this.computeTopFormats();
-    this.colorsList = this.computeTopColors();
-
     this.buildDOM();
+    this.refreshFacetDropdowns();
     this.renderResults();
   }
 
@@ -94,6 +112,7 @@ export class CatalogSelector {
       this.activeMeta = {
         title: preset.name,
         sub: preset.subtitle,
+        brandLabel: null,
         sku: null,
         url: null,
         thumb: bundle.previewUrl,
@@ -108,50 +127,55 @@ export class CatalogSelector {
       return;
     }
 
-    if (spec.key.startsWith('tm:')) {
-      const sku = spec.key.slice('tm:'.length);
-      const item = this.bySku.get(String(sku));
-      if (!item) return;
-      try {
-        const bundle = await this.textureLib.getTecnomatBundle(item);
-        const thumbUrl = `/tecnomat-media/${item.pic}?width=220&quality=80`;
-        this.selectedKey = `tm:${item.sku}`;
-        this.currentBaseBundle = bundle;
-        this.activeMeta = {
-          title: item.title,
-          sub: `${item.w}×${item.l} cm · ${item.effect} · ${item.finish}${item.rect ? ' · Rettificato' : ''}`,
-          sku: item.sku,
-          url: item.url,
-          thumb: thumbUrl,
-        };
-        this.updateBanner();
-        if (triggerApply) {
-          this.onApplyBundle(
-            this.textureLib.getOrientedBundle(this.currentBaseBundle, this.rotated90)
-          );
-        }
-        this.renderResults();
-      } catch (err) {
-        console.warn('Impossibile ripristinare SKU salvato:', sku, err);
+    const item = this.byKey.get(String(spec.key));
+    if (!item) return;
+
+    try {
+      const bundle = await this.textureLib.getCatalogItemBundle(item);
+      const thumbUrl = getCatalogItemThumbUrl(item);
+      this.selectedKey = getCatalogItemKey(item);
+      this.currentBaseBundle = bundle;
+      this.activeMeta = {
+        title: item.title,
+        sub: `${item.w}×${item.l} cm · ${item.effect} · ${item.finish}${item.rect ? ' · Rettificato' : ''}`,
+        brandLabel: item.brandLabel || BRAND_LABELS[item.brand || 'tecnomat'] || 'Catalogo',
+        sku: item.sku,
+        url: item.url,
+        thumb: thumbUrl,
+      };
+      this.updateBanner();
+      if (triggerApply) {
+        this.onApplyBundle(
+          this.textureLib.getOrientedBundle(this.currentBaseBundle, this.rotated90)
+        );
       }
+      this.renderResults();
+    } catch (err) {
+      console.warn('Impossibile ripristinare piastrella salvata:', spec.key, err);
     }
   }
 
-  computeTopFormats() {
+  getBrandScopedItems() {
+    if (this.brand === 'PRESETS') return [];
+    if (this.brand === 'ALL') return this.catalogItems;
+    return this.catalogItems.filter((it) => (it.brand || 'tecnomat') === this.brand);
+  }
+
+  computeTopFormats(items) {
     const counts = new Map();
-    for (const it of this.catalogItems) {
+    for (const it of items) {
       const key = `${it.w}×${it.l}`;
       counts.set(key, (counts.get(key) || 0) + 1);
     }
     return Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 22)
+      .slice(0, 24)
       .map(([fmt, cnt]) => ({ fmt, cnt }));
   }
 
-  computeTopColors() {
+  computeTopColors(items) {
     const counts = new Map();
-    for (const it of this.catalogItems) {
+    for (const it of items) {
       if (!it.color) continue;
       counts.set(it.color, (counts.get(it.color) || 0) + 1);
     }
@@ -160,7 +184,60 @@ export class CatalogSelector {
       .map(([col, cnt]) => ({ col, cnt }));
   }
 
+  refreshFacetDropdowns() {
+    const scoped = this.getBrandScopedItems();
+    const isPresets = this.brand === 'PRESETS';
+
+    const formatsList = this.computeTopFormats(scoped);
+    const colorsList = this.computeTopColors(scoped);
+
+    if (this.format !== 'ALL' && !formatsList.some((f) => f.fmt === this.format)) {
+      this.format = 'ALL';
+    }
+    if (this.color !== 'ALL' && !colorsList.some((c) => c.col === this.color)) {
+      this.color = 'ALL';
+    }
+
+    this.fmtSelect.innerHTML =
+      `<option value="ALL">Tutti i formati (cm)</option>` +
+      formatsList.map((f) => `<option value="${f.fmt}">${f.fmt} cm (${f.cnt})</option>`).join('');
+    this.fmtSelect.value = this.format;
+    this.fmtSelect.disabled = isPresets;
+
+    this.colSelect.innerHTML =
+      `<option value="ALL">Tutti i colori</option>` +
+      colorsList.map((c) => `<option value="${c.col}">${c.col} (${c.cnt})</option>`).join('');
+    this.colSelect.value = this.color;
+    this.colSelect.disabled = isPresets;
+
+    if (isPresets) {
+      this.searchInput.placeholder = 'Cerca piastrella (passa ai cataloghi)...';
+    } else if (this.brand === 'ALL') {
+      this.searchInput.placeholder = `Cerca tra ${scoped.length} gres (Tecnomat, Baucer, Armonie)...`;
+    } else {
+      const bLabel = BRAND_OPTIONS.find((b) => b.id === this.brand)?.label || this.brand;
+      this.searchInput.placeholder = `Cerca in ${bLabel} (${scoped.length} articoli)...`;
+    }
+  }
+
+  setBrand(nextBrand) {
+    this.brand = nextBrand;
+    this.visibleLimit = PAGE_STEP;
+    this.brandSelect.value = nextBrand;
+    this.brandPills.querySelectorAll('.brand-pill').forEach((p) => {
+      p.classList.toggle('active', p.dataset.brand === nextBrand);
+    });
+    this.refreshFacetDropdowns();
+    this.renderResults();
+  }
+
   buildDOM() {
+    const countForBrand = (id) => {
+      if (id === 'ALL') return this.catalogItems.length;
+      if (id === 'PRESETS') return this.presets.length;
+      return this.brandCounts[id] || 0;
+    };
+
     this.mountEl.innerHTML = `
       <div class="active-tile-banner">
         <div class="active-tile-thumb"></div>
@@ -179,11 +256,28 @@ export class CatalogSelector {
         </div>
       </div>
 
+      <div class="brand-menu-box">
+        <div class="brand-menu-row">
+          <label class="sub-label-inline">Catalogo:</label>
+          <select class="catalog-select brand-select" aria-label="Seleziona catalogo fornitore">
+            ${BRAND_OPTIONS.map(
+              (b) => `<option value="${b.id}">${b.label} (${countForBrand(b.id)})</option>`
+            ).join('')}
+          </select>
+        </div>
+        <div class="brand-pills">
+          ${BRAND_OPTIONS.map(
+            (b) =>
+              `<button type="button" class="brand-pill ${b.id === this.brand ? 'active' : ''}" data-brand="${b.id}">${b.short}</button>`
+          ).join('')}
+        </div>
+      </div>
+
       <div class="catalog-search-wrap">
         <input
           type="search"
           class="catalog-search-input"
-          placeholder="Cerca tra ${this.catalogItems.length} gres Tecnomat (nome, SKU, serie)..."
+          placeholder="Cerca piastrella per nome, collezione, SKU..."
           autocomplete="off"
         />
       </div>
@@ -191,18 +285,8 @@ export class CatalogSelector {
       <div class="effect-chips"></div>
 
       <div class="catalog-filters-row">
-        <select class="catalog-select fmt-select" aria-label="Filtra per formato">
-          <option value="ALL">Tutti i formati (cm)</option>
-          ${this.formatsList
-            .map((f) => `<option value="${f.fmt}">${f.fmt} cm (${f.cnt})</option>`)
-            .join('')}
-        </select>
-        <select class="catalog-select col-select" aria-label="Filtra per colore">
-          <option value="ALL">Tutti i colori</option>
-          ${this.colorsList
-            .map((c) => `<option value="${c.col}">${c.col} (${c.cnt})</option>`)
-            .join('')}
-        </select>
+        <select class="catalog-select fmt-select" aria-label="Filtra per formato"></select>
+        <select class="catalog-select col-select" aria-label="Filtra per colore"></select>
       </div>
 
       <div class="catalog-count-bar">
@@ -219,6 +303,8 @@ export class CatalogSelector {
     this.bannerTitle = this.mountEl.querySelector('.active-tile-title');
     this.bannerSub = this.mountEl.querySelector('.active-tile-sub');
     this.bannerLinks = this.mountEl.querySelector('.active-tile-links');
+    this.brandSelect = this.mountEl.querySelector('.brand-select');
+    this.brandPills = this.mountEl.querySelector('.brand-pills');
     this.searchInput = this.mountEl.querySelector('.catalog-search-input');
     this.chipsContainer = this.mountEl.querySelector('.effect-chips');
     this.fmtSelect = this.mountEl.querySelector('.fmt-select');
@@ -228,6 +314,17 @@ export class CatalogSelector {
     this.gridEl = this.mountEl.querySelector('.catalog-grid');
     this.loadMoreBtn = this.mountEl.querySelector('.load-more-btn');
     this.orientGroup = this.mountEl.querySelector('.orient-pills');
+
+    this.brandSelect.addEventListener('change', () => {
+      this.setBrand(this.brandSelect.value);
+    });
+
+    this.brandPills.querySelectorAll('.brand-pill').forEach((pill) => {
+      pill.addEventListener('click', () => {
+        this.setBrand(pill.dataset.brand);
+      });
+    });
+
     this.orientGroup.querySelectorAll('.pill-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         const nextRot = btn.dataset.rot === '90';
@@ -252,13 +349,13 @@ export class CatalogSelector {
       chip.textContent = ef.label;
       chip.addEventListener('click', () => {
         this.effect = ef.id;
+        if (this.brand === 'PRESETS') {
+          this.setBrand('ALL');
+        }
         this.visibleLimit = PAGE_STEP;
         this.chipsContainer.querySelectorAll('.effect-chip').forEach((c) => {
           c.classList.toggle('active', c.dataset.effect === this.effect);
         });
-        const isPresets = this.effect === 'PRESETS';
-        this.fmtSelect.disabled = isPresets;
-        this.colSelect.disabled = isPresets;
         this.renderResults();
       });
       this.chipsContainer.appendChild(chip);
@@ -266,11 +363,8 @@ export class CatalogSelector {
 
     this.searchInput.addEventListener('input', () => {
       this.query = this.searchInput.value.trim().toLowerCase();
-      if (this.query && this.effect === 'PRESETS') {
-        this.effect = 'ALL';
-        this.chipsContainer.querySelectorAll('.effect-chip').forEach((c) => {
-          c.classList.toggle('active', c.dataset.effect === 'ALL');
-        });
+      if (this.query && this.brand === 'PRESETS') {
+        this.setBrand('ALL');
       }
       this.visibleLimit = PAGE_STEP;
       this.renderResults();
@@ -294,15 +388,16 @@ export class CatalogSelector {
       this.format = 'ALL';
       this.color = 'ALL';
       this.searchInput.value = '';
-      this.fmtSelect.value = 'ALL';
-      this.colSelect.value = 'ALL';
-      this.fmtSelect.disabled = false;
-      this.colSelect.disabled = false;
-      this.visibleLimit = PAGE_STEP;
       this.chipsContainer.querySelectorAll('.effect-chip').forEach((c) => {
         c.classList.toggle('active', c.dataset.effect === 'ALL');
       });
-      this.renderResults();
+      if (this.brand === 'PRESETS') {
+        this.setBrand('ALL');
+      } else {
+        this.refreshFacetDropdowns();
+        this.visibleLimit = PAGE_STEP;
+        this.renderResults();
+      }
     });
 
     this.loadMoreBtn.addEventListener('click', () => {
@@ -320,9 +415,11 @@ export class CatalogSelector {
     this.bannerTitle.textContent = m.title;
     this.bannerSub.textContent = `${m.sub}${this.rotated90 ? ' · Ruotata 90°' : ''}`;
     if (m.sku && m.url) {
+      const bName = m.brandLabel || 'Catalogo';
       this.bannerLinks.innerHTML = `
+        <span class="brand-tag">${bName}</span>
         <span class="sku-tag">SKU ${m.sku}</span>
-        <a href="${m.url}" target="_blank" rel="noopener noreferrer" class="tm-ext-link">Scheda Tecnomat ↗</a>
+        <a href="${m.url}" target="_blank" rel="noopener noreferrer" class="tm-ext-link">Scheda ${bName} ↗</a>
       `;
     } else {
       this.bannerLinks.innerHTML = `<span class="sku-tag">Texture Procedurale 3D</span>`;
@@ -330,13 +427,14 @@ export class CatalogSelector {
   }
 
   getFilteredCatalog() {
+    const scoped = this.getBrandScopedItems();
     const terms = this.query ? this.query.split(/\s+/).filter(Boolean) : [];
-    return this.catalogItems.filter((it) => {
+    return scoped.filter((it) => {
       if (this.effect !== 'ALL' && it.effect !== this.effect) return false;
       if (this.format !== 'ALL' && `${it.w}×${it.l}` !== this.format) return false;
       if (this.color !== 'ALL' && it.color !== this.color) return false;
       if (terms.length > 0) {
-        const hay = `${it.title} ${it.fullName} ${it.sku} ${it.effect} ${it.color} ${it.w}x${it.l}`.toLowerCase();
+        const hay = `${it.brandLabel || ''} ${it.series || ''} ${it.title} ${it.fullName} ${it.sku} ${it.effect} ${it.color} ${it.w}x${it.l}`.toLowerCase();
         for (const t of terms) {
           if (!hay.includes(t)) return false;
         }
@@ -350,12 +448,12 @@ export class CatalogSelector {
 
     const hasFilters =
       Boolean(this.query) ||
-      (this.effect !== 'ALL' && this.effect !== 'PRESETS') ||
+      this.effect !== 'ALL' ||
       this.format !== 'ALL' ||
       this.color !== 'ALL';
     this.resetBtn.style.display = hasFilters ? 'inline-block' : 'none';
 
-    if (this.effect === 'PRESETS') {
+    if (this.brand === 'PRESETS') {
       this.countText.textContent = `${this.presets.length} texture procedurali base`;
       this.loadMoreBtn.style.display = 'none';
 
@@ -376,6 +474,7 @@ export class CatalogSelector {
           this.activeMeta = {
             title: preset.name,
             sub: preset.subtitle,
+            brandLabel: null,
             sku: null,
             url: null,
             thumb: bundle.previewUrl,
@@ -392,8 +491,13 @@ export class CatalogSelector {
       return;
     }
 
+    const scopedTotal = this.getBrandScopedItems().length;
     const filtered = this.getFilteredCatalog();
-    this.countText.textContent = `${filtered.length} di ${this.catalogItems.length} gres Tecnomat`;
+    const scopeName =
+      this.brand === 'ALL'
+        ? '3 cataloghi'
+        : BRAND_OPTIONS.find((b) => b.id === this.brand)?.label || this.brand;
+    this.countText.textContent = `${filtered.length} di ${scopedTotal} articoli (${scopeName})`;
 
     if (filtered.length === 0) {
       this.loadMoreBtn.style.display = 'none';
@@ -407,8 +511,11 @@ export class CatalogSelector {
 
     const slice = filtered.slice(0, this.visibleLimit);
     for (const item of slice) {
-      const key = `tm:${item.sku}`;
-      const thumbUrl = `/tecnomat-media/${item.pic}?width=220&quality=80`;
+      const key = getCatalogItemKey(item);
+      const brandId = item.brand || 'tecnomat';
+      const brandLabel = item.brandLabel || BRAND_LABELS[brandId] || 'Tecnomat';
+      const shortBadge = brandId === 'baucer' ? 'Baucer' : brandLabel;
+      const thumbUrl = getCatalogItemThumbUrl(item);
       const isSelected = this.selectedKey === key;
       const isLoading = this.loadingKey === key;
 
@@ -416,13 +523,15 @@ export class CatalogSelector {
       card.type = 'button';
       card.className = `swatch-card tm-card ${isSelected ? 'active' : ''} ${isLoading ? 'loading' : ''}`;
       card.dataset.sku = item.sku;
+      card.dataset.brand = brandId;
       card.innerHTML = `
         <div class="swatch-thumb tm-thumb-wrap">
           <img src="${thumbUrl}" alt="${item.title}" loading="lazy" />
+          <span class="brand-badge brand-${brandId}">${shortBadge}</span>
           <span class="fmt-pill">${item.w}×${item.l}</span>
         </div>
         <div class="swatch-title" title="${item.fullName}">${item.title}</div>
-        <div class="swatch-sub">${item.effect} · ${item.rect ? 'Rett.' : 'Nat.'} · SKU ${item.sku}</div>
+        <div class="swatch-sub">${item.effect} · ${item.rect ? 'Rett.' : 'Nat.'} · ${item.sku}</div>
       `;
 
       card.addEventListener('click', async () => {
@@ -431,13 +540,14 @@ export class CatalogSelector {
         card.classList.add('loading');
 
         try {
-          const bundle = await this.textureLib.getTecnomatBundle(item);
+          const bundle = await this.textureLib.getCatalogItemBundle(item);
           this.selectedKey = key;
           this.loadingKey = null;
           this.currentBaseBundle = bundle;
           this.activeMeta = {
             title: item.title,
             sub: `${item.w}×${item.l} cm · ${item.effect} · ${item.finish}${item.rect ? ' · Rettificato' : ''}`,
+            brandLabel,
             sku: item.sku,
             url: item.url,
             thumb: thumbUrl,

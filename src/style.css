@@ -633,6 +633,65 @@ body,
   margin-bottom: 11px;
 }
 
+.zone-switch.three-cols {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.tool-btn.active {
+  background: rgba(245, 158, 11, 0.26);
+  border-color: #f59e0b;
+  color: #fde68a;
+}
+
+.single-wall-hint-box {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.38);
+  border-radius: 9px;
+  padding: 8px 10px;
+}
+
+.custom-walls-box {
+  margin-top: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.custom-walls-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-bottom: 5px;
+}
+
+.custom-walls-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.custom-wall-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(224, 178, 107, 0.16);
+  border: 1px solid rgba(224, 178, 107, 0.4);
+  color: var(--text-main);
+  font-size: 0.66rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 99px;
+  cursor: pointer;
+}
+
+.custom-wall-chip:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
 .zone-btn {
   background: transparent;
   border: none;
@@ -765,8 +824,19 @@ body,
 .active-tile-links {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 4px;
+}
+
+.brand-tag {
+  font-size: 0.63rem;
+  font-weight: 700;
+  color: #a7f3d0;
+  background: rgba(16, 185, 129, 0.18);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  padding: 1px 6px;
+  border-radius: 4px;
 }
 
 .sku-tag {
@@ -776,6 +846,82 @@ body,
   background: rgba(224, 178, 107, 0.16);
   padding: 1px 6px;
   border-radius: 4px;
+}
+
+.brand-menu-box {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 7px 8px;
+  margin-bottom: 9px;
+}
+
+.brand-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-menu-row .brand-select {
+  flex: 1;
+  font-weight: 700;
+}
+
+.brand-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.brand-pill {
+  flex: 1 1 auto;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.13s ease;
+}
+
+.brand-pill:hover {
+  color: var(--text-main);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.brand-pill.active {
+  background: rgba(224, 178, 107, 0.24);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.brand-badge {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: #ffffff;
+  background: rgba(25, 32, 42, 0.82);
+  white-space: nowrap;
+}
+
+.brand-badge.brand-tecnomat {
+  background: rgba(15, 118, 110, 0.88);
+}
+
+.brand-badge.brand-baucer {
+  background: rgba(180, 83, 9, 0.9);
+}
+
+.brand-badge.brand-armonie {
+  background: rgba(67, 56, 202, 0.88);
 }
 
 .tm-ext-link {

@@ -132,8 +132,41 @@ export class BathroomRoom {
     this.roomShellContainer = new THREE.Group();
     this.root.add(this.roomShellContainer);
 
+    this.showerContainer = new THREE.Group();
+    this.root.add(this.showerContainer);
+
+    this.hoverHighlightMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({
+        color: 0xfbbf24,
+        transparent: true,
+        opacity: 0.22,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    );
+    this.hoverHighlightMesh.visible = false;
+    this.root.add(this.hoverHighlightMesh);
+
+    this.fixtureOutlineMesh = new THREE.Mesh(
+      new THREE.RingGeometry(0.45, 0.5, 4),
+      new THREE.MeshBasicMaterial({
+        color: 0xf59e0b,
+        transparent: true,
+        opacity: 0.85,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    );
+    this.fixtureOutlineMesh.visible = false;
+    this.root.add(this.fixtureOutlineMesh);
+
+    this.perWallMaterials = new Map(); // wallId -> THREE.MeshStandardMaterial
+    this.hoveredWallId = null;
+
     this.roomType = 'ground'; // 'ground' | 'first'
     this.tileHeightMode = 'door'; // 'full' | 'door' | 'half'
+    this.showerTileHeightMode = 'fixed-210'; // 'fixed-210' | 'fixed-270' | 'follow'
     this.vanityWallEnabled = false;
     this.vanityWallHeightMode = 'same'; // 'same' | 'full'
     this.vanityZoneSpan = 'window-to-wall';
@@ -143,23 +176,68 @@ export class BathroomRoom {
     this.doorTargetAngle = 0.06;
     this.showerGroup = null;
 
+    this.showerEnabled = false;
+    this.showerPlacement = { wallId: 'east', s: 2.52 };
+    this.vanityPlacement = { wallId: 'east', s: 2.0 };
+
     this.buildSanitaryAndRadiator();
     this.buildRoomLights();
     this.rebuildRoomArchitecture();
+  }
+
+  getDefaultFixturesForRoom(type = this.roomType) {
+    if (type === 'first') {
+      return {
+        showerEnabled: true,
+        showerPlacement: { wallId: 'east', s: 2.52 },
+        vanityPlacement: { wallId: 'south', s: 1.35 },
+      };
+    }
+    return {
+      showerEnabled: false,
+      showerPlacement: { wallId: 'south', s: 0.4 },
+      vanityPlacement: { wallId: 'east', s: 2.0 },
+    };
   }
 
   getActivePolygon() {
     return this.roomType === 'first' ? ROOM_POLYGON_FIRST : ROOM_POLYGON_GROUND;
   }
 
+  isPointInsideRoom(x, z, eps = 0.015) {
+    if (this.roomType === 'first') {
+      return x >= -eps && x <= 1.9 + eps && z >= -eps && z <= 2.92 + eps;
+    }
+    if (x > 1.9 + eps || z < -eps || z > 2.8 + eps) return false;
+    if (z <= 0.8 + eps) return x >= -eps;
+    if (z <= 1.9 + eps) return x >= 0.14 - eps;
+    return x >= 0.54 - eps;
+  }
+
+  isBoxInsideRoom(box, eps = 0.02) {
+    return (
+      this.isPointInsideRoom(box.minX, box.minZ, eps) &&
+      this.isPointInsideRoom(box.maxX, box.minZ, eps) &&
+      this.isPointInsideRoom(box.maxX, box.maxZ, eps) &&
+      this.isPointInsideRoom(box.minX, box.maxZ, eps) &&
+      this.isPointInsideRoom((box.minX + box.maxX) * 0.5, (box.minZ + box.maxZ) * 0.5, eps)
+    );
+  }
+
   setRoomType(type) {
     if (type !== 'ground' && type !== 'first') return;
-    if (this.roomType === type) return;
+    const changed = this.roomType !== type;
     this.roomType = type;
-    this.doorOpen = false;
-    this.doorCurrentAngle = type === 'first' ? -0.06 : 0.06;
-    this.doorTargetAngle = this.doorCurrentAngle;
-    this.rebuildRoomArchitecture();
+    if (changed) {
+      this.doorOpen = false;
+      this.doorCurrentAngle = type === 'first' ? -0.06 : 0.06;
+      this.doorTargetAngle = this.doorCurrentAngle;
+      const defs = this.getDefaultFixturesForRoom(type);
+      this.showerEnabled = defs.showerEnabled;
+      this.showerPlacement = { ...defs.showerPlacement };
+      this.vanityPlacement = { ...defs.vanityPlacement };
+      this.rebuildRoomArchitecture();
+    }
   }
 
   rebuildRoomArchitecture() {
@@ -170,17 +248,28 @@ export class BathroomRoom {
       });
       this.roomShellContainer.remove(child);
     }
-    this.showerGroup = null;
 
     this.buildFloorAndCeiling();
     this.rebuildWalls();
     this.buildWindowAndExterior();
     this.buildDoor();
-    if (this.roomType === 'first') {
-      this.buildCornerShower80x80();
-    }
+    this.rebuildShower();
     this.setCutawayMode(this.cutawayMode);
     this.setLightingMode(this.lightingMode || 'day');
+  }
+
+  rebuildShower() {
+    while (this.showerContainer.children.length > 0) {
+      const child = this.showerContainer.children[0];
+      child.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+      });
+      this.showerContainer.remove(child);
+    }
+    this.showerGroup = null;
+    if (this.showerEnabled) {
+      this.buildCornerShower80x80();
+    }
   }
 
   buildFloorAndCeiling() {
@@ -247,152 +336,312 @@ export class BathroomRoom {
     this.roomShellContainer.add(this.ceilingMesh);
   }
 
-  getWallDefinitions() {
-    if (this.roomType === 'first') {
-      // Bagno Primo Piano: 190 x 292 cm (5,55 mq)
-      // - East window 100x100 at z = 0.18..1.18, y = 0.80..1.80
-      // - SE corner 80x80 shower at x = 1.10..1.90, z = 2.12..2.92
-      // - South wall vanity zone beside shower right flank: x = 1.10..0.00 (s = 0.80..1.90 = 110 cm)
-      // - West door 80x210 at z = 0.60..1.40 -> along (0,2.92)->(0,0), s = 1.52..2.32
-      const southPatches =
-        this.vanityWallEnabled && this.vanityZoneSpan === 'centered'
-          ? [
-              { s0: 0.0, s1: 0.8, y0: 0, y1: ROOM_HEIGHT, showerPatch: true },
-              { s0: 0.8, s1: 0.86, y0: 0, y1: ROOM_HEIGHT },
-              {
-                s0: 0.86,
-                s1: 1.84,
-                y0: 0,
-                y1: ROOM_HEIGHT,
-                vanityZone: true,
-                trimLeft: true,
-                trimRight: true,
-              },
-              { s0: 1.84, s1: 1.9, y0: 0, y1: ROOM_HEIGHT },
-            ]
-          : [
-              { s0: 0.0, s1: 0.8, y0: 0, y1: ROOM_HEIGHT, showerPatch: true },
-              {
-                s0: 0.8,
-                s1: 1.9,
-                y0: 0,
-                y1: ROOM_HEIGHT,
-                vanityZone: true,
-                trimLeft: true,
-                trimRight: false,
-              },
-            ];
+  getBaseWallSegments() {
+    const raw =
+      this.roomType === 'first'
+        ? [
+            {
+              id: 'north',
+              label: 'Parete Nord (Sanitari)',
+              p1: { x: 0.0, z: 0.0 },
+              p2: { x: 1.9, z: 0.0 },
+              openings: [],
+            },
+            {
+              id: 'east',
+              label: 'Parete Est (Finestra)',
+              p1: { x: 1.9, z: 0.0 },
+              p2: { x: 1.9, z: 2.92 },
+              openings: [{ s0: 0.18, s1: 1.18, y0: 0.8, y1: 1.8, kind: 'window' }],
+            },
+            {
+              id: 'south',
+              label: 'Parete Sud (Fondo)',
+              p1: { x: 1.9, z: 2.92 },
+              p2: { x: 0.0, z: 2.92 },
+              openings: [],
+            },
+            {
+              id: 'west-door',
+              label: 'Parete Ovest (Porta)',
+              p1: { x: 0.0, z: 2.92 },
+              p2: { x: 0.0, z: 0.0 },
+              openings: [{ s0: 1.52, s1: 2.32, y0: 0.0, y1: 2.1, kind: 'door' }],
+            },
+          ]
+        : [
+            {
+              id: 'north',
+              label: 'Parete Nord (Sanitari)',
+              p1: { x: 0.0, z: 0.0 },
+              p2: { x: 1.9, z: 0.0 },
+              openings: [],
+            },
+            {
+              id: 'east',
+              label: 'Parete Est (Finestra)',
+              p1: { x: 1.9, z: 0.0 },
+              p2: { x: 1.9, z: 2.8 },
+              openings: [{ s0: 0.25, s1: 1.25, y0: 0.8, y1: 1.8, kind: 'window' }],
+            },
+            {
+              id: 'south',
+              label: 'Parete Sud (136 cm)',
+              p1: { x: 1.9, z: 2.8 },
+              p2: { x: 0.54, z: 2.8 },
+              openings: [],
+            },
+            {
+              id: 'west-bottom',
+              label: 'Parete Ovest Sud (90 cm)',
+              p1: { x: 0.54, z: 2.8 },
+              p2: { x: 0.54, z: 1.9 },
+              openings: [],
+            },
+            {
+              id: 'step-40',
+              label: 'Spalla Ovest (40 cm)',
+              p1: { x: 0.54, z: 1.9 },
+              p2: { x: 0.14, z: 1.9 },
+              openings: [],
+            },
+            {
+              id: 'west-door',
+              label: 'Parete Ovest (Porta)',
+              p1: { x: 0.14, z: 1.9 },
+              p2: { x: 0.14, z: 0.8 },
+              openings: [{ s0: 0.18, s1: 0.98, y0: 0.0, y1: 2.1, kind: 'door' }],
+            },
+            {
+              id: 'step-14',
+              label: 'Spalla Ovest (14 cm)',
+              p1: { x: 0.14, z: 0.8 },
+              p2: { x: 0.0, z: 0.8 },
+              openings: [],
+            },
+            {
+              id: 'west-top',
+              label: 'Parete Ovest Nord (80 cm)',
+              p1: { x: 0.0, z: 0.8 },
+              p2: { x: 0.0, z: 0.0 },
+              openings: [],
+            },
+          ];
 
-      return [
-        {
-          id: 'north',
-          p1: { x: 0.0, z: 0.0 },
-          p2: { x: 1.9, z: 0.0 },
-          patches: [{ s0: 0, s1: 1.9, y0: 0, y1: ROOM_HEIGHT }],
-        },
-        {
-          id: 'east',
-          p1: { x: 1.9, z: 0.0 },
-          p2: { x: 1.9, z: 2.92 },
-          patches: [
-            { s0: 0.0, s1: 0.18, y0: 0, y1: ROOM_HEIGHT },
-            { s0: 0.18, s1: 1.18, y0: 0, y1: 0.8 },
-            { s0: 0.18, s1: 1.18, y0: 1.8, y1: ROOM_HEIGHT },
-            { s0: 1.18, s1: 2.12, y0: 0, y1: ROOM_HEIGHT },
-            { s0: 2.12, s1: 2.92, y0: 0, y1: ROOM_HEIGHT, showerPatch: true },
-          ],
-        },
-        {
-          id: 'south',
-          p1: { x: 1.9, z: 2.92 },
-          p2: { x: 0.0, z: 2.92 },
-          patches: southPatches,
-        },
-        {
-          id: 'west-door',
-          p1: { x: 0.0, z: 2.92 },
-          p2: { x: 0.0, z: 0.0 },
-          patches: [
-            { s0: 0.0, s1: 1.52, y0: 0, y1: ROOM_HEIGHT },
-            { s0: 1.52, s1: 2.32, y0: 2.1, y1: ROOM_HEIGHT },
-            { s0: 2.32, s1: 2.92, y0: 0, y1: ROOM_HEIGHT },
-          ],
-        },
-      ];
-    }
+    return raw.map((seg) => {
+      const dx = seg.p2.x - seg.p1.x;
+      const dz = seg.p2.z - seg.p1.z;
+      const len = Math.hypot(dx, dz);
+      const ux = dx / len;
+      const uz = dz / len;
+      const nx = -dz / len;
+      const nz = dx / len;
+      return { ...seg, dx, dz, len, ux, uz, nx, nz };
+    });
+  }
 
-    // Bagno Pianterreno (4,68 mq)
-    return [
-      {
-        id: 'north',
-        p1: { x: 0.0, z: 0.0 },
-        p2: { x: 1.9, z: 0.0 },
-        patches: [{ s0: 0, s1: 1.9, y0: 0, y1: ROOM_HEIGHT }],
-      },
-      {
-        id: 'east',
-        p1: { x: 1.9, z: 0.0 },
-        p2: { x: 1.9, z: 2.8 },
-        // Window 100x100 at s = 0.25..1.25, y = 0.80..1.80; s = 1.25..2.80 (155 cm) holds Mobile Bagno & Specchio!
-        patches:
-          this.vanityWallEnabled && this.vanityZoneSpan === 'centered'
-            ? [
-                { s0: 0.0, s1: 0.25, y0: 0, y1: ROOM_HEIGHT },
-                { s0: 0.25, s1: 1.25, y0: 0, y1: 0.8 },
-                { s0: 0.25, s1: 1.25, y0: 1.8, y1: ROOM_HEIGHT },
-                { s0: 1.25, s1: 1.35, y0: 0, y1: ROOM_HEIGHT },
-                { s0: 1.35, s1: 2.65, y0: 0, y1: ROOM_HEIGHT, vanityZone: true, trimLeft: true, trimRight: true },
-                { s0: 2.65, s1: 2.8, y0: 0, y1: ROOM_HEIGHT },
-              ]
-            : [
-                { s0: 0.0, s1: 0.25, y0: 0, y1: ROOM_HEIGHT },
-                { s0: 0.25, s1: 1.25, y0: 0, y1: 0.8 },
-                { s0: 0.25, s1: 1.25, y0: 1.8, y1: ROOM_HEIGHT },
-                { s0: 1.25, s1: 2.8, y0: 0, y1: ROOM_HEIGHT, vanityZone: true, trimLeft: true, trimRight: false },
-              ],
-      },
-      {
-        id: 'south',
-        p1: { x: 1.9, z: 2.8 },
-        p2: { x: 0.54, z: 2.8 },
-        patches: [{ s0: 0, s1: 1.36, y0: 0, y1: ROOM_HEIGHT }],
-      },
-      {
-        id: 'west-bottom',
-        p1: { x: 0.54, z: 2.8 },
-        p2: { x: 0.54, z: 1.9 },
-        patches: [{ s0: 0, s1: 0.9, y0: 0, y1: ROOM_HEIGHT }],
-      },
-      {
-        id: 'step-40',
-        p1: { x: 0.54, z: 1.9 },
-        p2: { x: 0.14, z: 1.9 },
-        patches: [{ s0: 0, s1: 0.4, y0: 0, y1: ROOM_HEIGHT }],
-      },
-      {
-        id: 'west-door',
-        p1: { x: 0.14, z: 1.9 },
-        p2: { x: 0.14, z: 0.8 },
-        // Door 80x210 at z = 0.92..1.72 -> s from (1.90-1.72)=0.18 to (1.90-0.92)=0.98
-        patches: [
-          { s0: 0.0, s1: 0.18, y0: 0, y1: ROOM_HEIGHT },
-          { s0: 0.18, s1: 0.98, y0: 2.1, y1: ROOM_HEIGHT },
-          { s0: 0.98, s1: 1.1, y0: 0, y1: ROOM_HEIGHT },
-        ],
-      },
-      {
-        id: 'step-14',
-        p1: { x: 0.14, z: 0.8 },
-        p2: { x: 0.0, z: 0.8 },
-        patches: [{ s0: 0, s1: 0.14, y0: 0, y1: ROOM_HEIGHT }],
-      },
-      {
-        id: 'west-top',
-        p1: { x: 0.0, z: 0.8 },
-        p2: { x: 0.0, z: 0.0 },
-        patches: [{ s0: 0, s1: 0.8, y0: 0, y1: ROOM_HEIGHT }],
-      },
+  getShowerAABB(placement = this.showerPlacement, forceEnable = false) {
+    if (!this.showerEnabled && !forceEnable) return null;
+    if (!placement) return null;
+    const segs = this.getBaseWallSegments();
+    const w = segs.find((s) => s.id === placement.wallId) || segs[1];
+    const sClamped = Math.max(0.4, Math.min(w.len - 0.4, placement.s));
+    const cx = w.p1.x + w.ux * sClamped + w.nx * 0.4;
+    const cz = w.p1.z + w.uz * sClamped + w.nz * 0.4;
+    return {
+      minX: cx - 0.4,
+      maxX: cx + 0.4,
+      minZ: cz - 0.4,
+      maxZ: cz + 0.4,
+      cx,
+      cz,
+      wallId: w.id,
+      s: sClamped,
+      wall: w,
+    };
+  }
+
+  getShowerIntervalOnWall(wall, shBox) {
+    if (!shBox) return null;
+    // Distance from wall line to shower box near face along inward normal
+    // Check if any face of shBox lies flush against `wall`
+    const pts = [
+      { x: shBox.minX, z: shBox.minZ },
+      { x: shBox.maxX, z: shBox.minZ },
+      { x: shBox.maxX, z: shBox.maxZ },
+      { x: shBox.minX, z: shBox.maxZ },
     ];
+    let minDist = Infinity;
+    let sMin = Infinity;
+    let sMax = -Infinity;
+    for (const p of pts) {
+      const rx = p.x - wall.p1.x;
+      const rz = p.z - wall.p1.z;
+      const dist = rx * wall.nx + rz * wall.nz;
+      if (Math.abs(dist) < 0.03) {
+        const s = rx * wall.ux + rz * wall.uz;
+        minDist = Math.min(minDist, Math.abs(dist));
+        sMin = Math.min(sMin, s);
+        sMax = Math.max(sMax, s);
+      }
+    }
+    if (minDist > 0.03 || sMax <= sMin + 0.05) return null;
+    const a = Math.max(0, sMin);
+    const b = Math.min(wall.len, sMax);
+    return b > a + 0.05 ? [a, b] : null;
+  }
+
+  getFreeSpanAroundOnWall(wall, sCenter, shBox) {
+    let left = 0;
+    let right = wall.len;
+    for (const op of wall.openings) {
+      if (op.s1 <= sCenter + 0.01) left = Math.max(left, op.s1);
+      if (op.s0 >= sCenter - 0.01) right = Math.min(right, op.s0);
+    }
+    if (wall.id === 'north') {
+      // Bidet & WC occupy s = 0.30..1.56 on North wall
+      if (1.56 <= sCenter + 0.01) left = Math.max(left, 1.56);
+      if (0.3 >= sCenter - 0.01) right = Math.min(right, 0.3);
+    }
+    const shInt = this.getShowerIntervalOnWall(wall, shBox);
+    if (shInt) {
+      if (shInt[1] <= sCenter + 0.01) left = Math.max(left, shInt[1]);
+      if (shInt[0] >= sCenter - 0.01) right = Math.min(right, shInt[0]);
+    }
+    return [left, right];
+  }
+
+  getVanityPoseAndAABB(placement = this.vanityPlacement, shBox = this.getShowerAABB()) {
+    const segs = this.getBaseWallSegments();
+    const w = segs.find((s) => s.id === placement?.wallId) || segs[1];
+    const s = Math.max(0.42, Math.min(w.len - 0.42, placement?.s ?? w.len * 0.5));
+    const [spanL, spanR] = this.getFreeSpanAroundOnWall(w, s, shBox);
+    const availWidth = Math.max(0.8, Math.min(1.6, spanR - spanL));
+    const effSpan = Math.min(1.0, availWidth - 0.02);
+    const depth = 0.48;
+
+    const x = w.p1.x + w.ux * s + w.nx * 0.005;
+    const z = w.p1.z + w.uz * s + w.nz * 0.005;
+    const rotY = Math.atan2(w.nx, w.nz);
+
+    const c1x = w.p1.x + w.ux * (s - effSpan * 0.5);
+    const c1z = w.p1.z + w.uz * (s - effSpan * 0.5);
+    const c2x = w.p1.x + w.ux * (s + effSpan * 0.5) + w.nx * depth;
+    const c2z = w.p1.z + w.uz * (s + effSpan * 0.5) + w.nz * depth;
+
+    return {
+      x,
+      z,
+      rotY,
+      availWidth,
+      effSpan,
+      depth,
+      wallId: w.id,
+      wallLabel: w.label,
+      s,
+      spanL,
+      spanR,
+      wall: w,
+      minX: Math.min(c1x, c2x),
+      maxX: Math.max(c1x, c2x),
+      minZ: Math.min(c1z, c2z),
+      maxZ: Math.max(c1z, c2z),
+    };
+  }
+
+  getWallDefinitions() {
+    const segs = this.getBaseWallSegments();
+    const shBox = this.getShowerAABB();
+    const vanInfo = this.getVanityPoseAndAABB(this.vanityPlacement, shBox);
+
+    return segs.map((seg) => {
+      // 1. Build base patches from openings (door / window)
+      const basePatches = [];
+      let cursor = 0;
+      const sortedOps = [...seg.openings].sort((a, b) => a.s0 - b.s0);
+      for (const op of sortedOps) {
+        if (op.s0 > cursor + 0.005) {
+          basePatches.push({ s0: cursor, s1: op.s0, y0: 0, y1: ROOM_HEIGHT });
+        }
+        if (op.y0 > 0.005) {
+          basePatches.push({ s0: op.s0, s1: op.s1, y0: 0, y1: op.y0 });
+        }
+        if (op.y1 < ROOM_HEIGHT - 0.005) {
+          basePatches.push({ s0: op.s0, s1: op.s1, y0: op.y1, y1: ROOM_HEIGHT });
+        }
+        cursor = op.s1;
+      }
+      if (cursor < seg.len - 0.005) {
+        basePatches.push({ s0: cursor, s1: seg.len, y0: 0, y1: ROOM_HEIGHT });
+      }
+
+      // 2. Determine shower interval & vanity accent interval on this wall
+      const shRange = this.getShowerIntervalOnWall(seg, shBox);
+      let vanRange = null;
+      if (this.vanityWallEnabled && vanInfo.wallId === seg.id) {
+        if (this.vanityZoneSpan === 'centered') {
+          const half = Math.min(0.65, (vanInfo.spanR - vanInfo.spanL) * 0.47);
+          const v0 = Math.max(vanInfo.spanL, vanInfo.s - half);
+          const v1 = Math.min(vanInfo.spanR, vanInfo.s + half);
+          if (v1 > v0 + 0.1) vanRange = [v0, v1];
+        } else {
+          if (vanInfo.spanR > vanInfo.spanL + 0.1) {
+            vanRange = [vanInfo.spanL, vanInfo.spanR];
+          }
+        }
+      }
+
+      // 3. Split full-height patches cleanly at showerRange / vanRange boundaries
+      const finalPatches = [];
+      for (const bp of basePatches) {
+        const isOpeningBand = bp.y0 > 0.01 || bp.y1 < ROOM_HEIGHT - 0.01;
+        if (isOpeningBand) {
+          finalPatches.push(bp);
+          continue;
+        }
+        const cuts = new Set([bp.s0, bp.s1]);
+        if (shRange) {
+          if (shRange[0] > bp.s0 + 0.005 && shRange[0] < bp.s1 - 0.005) cuts.add(shRange[0]);
+          if (shRange[1] > bp.s0 + 0.005 && shRange[1] < bp.s1 - 0.005) cuts.add(shRange[1]);
+        }
+        if (vanRange) {
+          if (vanRange[0] > bp.s0 + 0.005 && vanRange[0] < bp.s1 - 0.005) cuts.add(vanRange[0]);
+          if (vanRange[1] > bp.s0 + 0.005 && vanRange[1] < bp.s1 - 0.005) cuts.add(vanRange[1]);
+        }
+        const pts = [...cuts].sort((a, b) => a - b);
+        for (let i = 0; i < pts.length - 1; i++) {
+          const a = pts[i];
+          const b = pts[i + 1];
+          if (b - a < 0.005) continue;
+          const mid = (a + b) * 0.5;
+          const showerPatch = Boolean(shRange && mid >= shRange[0] && mid <= shRange[1]);
+          const vanityZone = Boolean(!showerPatch && vanRange && mid >= vanRange[0] && mid <= vanRange[1]);
+          finalPatches.push({
+            s0: a,
+            s1: b,
+            y0: bp.y0,
+            y1: bp.y1,
+            showerPatch,
+            vanityZone,
+            trimLeft: vanityZone && Math.abs(a - vanRange[0]) < 0.008 && a > 0.02,
+            trimRight: vanityZone && Math.abs(b - vanRange[1]) < 0.008 && b < seg.len - 0.02,
+          });
+        }
+      }
+
+      return {
+        id: seg.id,
+        label: seg.label,
+        p1: seg.p1,
+        p2: seg.p2,
+        len: seg.len,
+        nx: seg.nx,
+        nz: seg.nz,
+        ux: seg.ux,
+        uz: seg.uz,
+        patches: finalPatches,
+      };
+    });
   }
 
   rebuildWalls() {
@@ -412,24 +661,30 @@ export class BathroomRoom {
       const group = new THREE.Group();
       const dx = def.p2.x - def.p1.x;
       const dz = def.p2.z - def.p1.z;
-      const len = Math.hypot(dx, dz);
-      const nx = -dz / len;
-      const nz = dx / len;
+      const len = def.len;
+      const nx = def.nx;
+      const nz = def.nz;
       const midX = (def.p1.x + def.p2.x) * 0.5;
       const midZ = (def.p1.z + def.p2.z) * 0.5;
+
+      const customWallMat = this.perWallMaterials.get(def.id) || null;
 
       for (const patch of def.patches) {
         const useVanityAccent = Boolean(patch.vanityZone && this.vanityWallEnabled);
         let tileTop = ROOM_HEIGHT;
-        if (useVanityAccent && this.vanityWallHeightMode === 'full') {
+        if (patch.showerPatch && this.showerTileHeightMode !== 'follow') {
+          tileTop = this.showerTileHeightMode === 'fixed-270' ? ROOM_HEIGHT : 2.1;
+        } else if (useVanityAccent && this.vanityWallHeightMode === 'full') {
           tileTop = ROOM_HEIGHT;
         } else if (this.tileHeightMode === 'door') {
           tileTop = 2.1;
         } else if (this.tileHeightMode === 'half') {
-          tileTop = patch.showerPatch ? 2.1 : 1.2;
+          tileTop = 1.2;
         }
 
-        const activeTileMat = useVanityAccent ? this.vanityWallMaterial : this.wallTileMaterial;
+        const activeTileMat = useVanityAccent
+          ? this.vanityWallMaterial
+          : customWallMat || this.wallTileMaterial;
 
         // Lower tiled band
         const t0 = patch.y0;
@@ -438,10 +693,11 @@ export class BathroomRoom {
           const geo = buildQuadGeometry(def.p1, def.p2, patch.s0, patch.s1, t0, t1, uRunning, false);
           const mesh = new THREE.Mesh(geo, activeTileMat);
           mesh.receiveShadow = true;
+          mesh.userData = { isWall: true, wallId: def.id, wallLabel: def.label };
           group.add(mesh);
         }
 
-        // Vertical jolly trim profile along the vanity accent zone border(s)
+        // Vertical jolly trim profile along the vanity accent zone border(s) OR shower height step!
         if (useVanityAccent && t1 > t0 + 0.01) {
           const ux = dx / len;
           const uz = dz / len;
@@ -462,6 +718,29 @@ export class BathroomRoom {
           }
         }
 
+        const generalTop =
+          this.tileHeightMode === 'full' ? ROOM_HEIGHT : this.tileHeightMode === 'door' ? 2.1 : 1.2;
+        if (patch.showerPatch && Math.abs(t1 - generalTop) > 0.02) {
+          const ux = dx / len;
+          const uz = dz / len;
+          const yLow = Math.min(t1, generalTop);
+          const yHigh = Math.max(t1, generalTop);
+          for (const sEdge of [patch.s0, patch.s1]) {
+            if (sEdge > 0.02 && sEdge < len - 0.02) {
+              const sTrim = new THREE.Mesh(
+                new THREE.BoxGeometry(0.01, yHigh - yLow, 0.01),
+                this.metalMaterial
+              );
+              sTrim.position.set(
+                def.p1.x + ux * sEdge + nx * 0.004,
+                (yLow + yHigh) * 0.5,
+                def.p1.z + uz * sEdge + nz * 0.004
+              );
+              group.add(sTrim);
+            }
+          }
+        }
+
         // Upper painted plaster band
         const p0 = Math.max(patch.y0, tileTop);
         const p1 = patch.y1;
@@ -469,6 +748,7 @@ export class BathroomRoom {
           const geo = buildQuadGeometry(def.p1, def.p2, patch.s0, patch.s1, p0, p1, uRunning, false);
           const mesh = new THREE.Mesh(geo, this.wallPaintMaterial);
           mesh.receiveShadow = true;
+          mesh.userData = { isWall: true, wallId: def.id, wallLabel: def.label };
           group.add(mesh);
         }
 
@@ -676,8 +956,11 @@ export class BathroomRoom {
   }
 
   buildCornerShower80x80() {
-    // 80x80 cm Corner Shower Box in SE corner (x = 1.10..1.90, z = 2.12..2.92) for Bagno Primo Piano
+    const shBox = this.getShowerAABB();
+    if (!shBox) return;
+
     const shower = new THREE.Group();
+    const { cx, cz, minX, maxX, minZ, maxZ, wall: anchorWall } = shBox;
 
     // Slim white stone-resin 80x80 shower tray
     const trayMat = new THREE.MeshStandardMaterial({
@@ -686,7 +969,7 @@ export class BathroomRoom {
       metalness: 0.02,
     });
     const tray = new THREE.Mesh(new THREE.BoxGeometry(0.795, 0.036, 0.795), trayMat);
-    tray.position.set(1.5, 0.018, 2.52);
+    tray.position.set(cx, 0.018, cz);
     tray.receiveShadow = true;
     shower.add(tray);
 
@@ -694,10 +977,9 @@ export class BathroomRoom {
       new THREE.CylinderGeometry(0.048, 0.048, 0.039, 20),
       this.metalMaterial
     );
-    drain.position.set(1.5, 0.019, 2.52);
+    drain.position.set(cx, 0.019, cz);
     shower.add(drain);
 
-    // Clear tempered glass enclosure (height 2.00 m -> y = 0.036..2.036)
     const glassMat = new THREE.MeshPhysicalMaterial({
       color: 0xe4f3f8,
       transparent: true,
@@ -708,73 +990,127 @@ export class BathroomRoom {
       side: THREE.DoubleSide,
     });
 
-    // North glass door/panel (z = 2.125, x = 1.105..1.895)
-    const glassNorth = new THREE.Mesh(new THREE.BoxGeometry(0.79, 2.0, 0.01), glassMat);
-    glassNorth.position.set(1.5, 1.036, 2.125);
-    // West glass panel — right flank adjacent to Mobile Bagno (x = 1.105, z = 2.125..2.915)
-    const glassWest = new THREE.Mesh(new THREE.BoxGeometry(0.01, 2.0, 0.79), glassMat);
-    glassWest.position.set(1.105, 1.036, 2.52);
-    shower.add(glassNorth, glassWest);
+    // Check which of the 4 sides of the 80x80 box touch a room masonry wall
+    const segs = this.getBaseWallSegments();
+    const sideTouchesWall = (mx, mz) => {
+      for (const seg of segs) {
+        const rx = mx - seg.p1.x;
+        const rz = mz - seg.p1.z;
+        const s = rx * seg.ux + rz * seg.uz;
+        const dist = Math.abs(rx * seg.nx + rz * seg.nz);
+        if (dist < 0.035 && s >= -0.05 && s <= seg.len + 0.05) {
+          return true;
+        }
+      }
+      return false;
+    };
 
-    // Metal profiles (wall uprights, corner post, top perimeter frame, door handle)
-    const profEast = new THREE.Mesh(new THREE.BoxGeometry(0.022, 2.01, 0.024), this.metalMaterial);
-    profEast.position.set(1.888, 1.04, 2.125);
-    const profSouth = new THREE.Mesh(new THREE.BoxGeometry(0.024, 2.01, 0.022), this.metalMaterial);
-    profSouth.position.set(1.105, 1.04, 2.908);
-    const cornerPost = new THREE.Mesh(new THREE.BoxGeometry(0.024, 2.01, 0.024), this.metalMaterial);
-    cornerPost.position.set(1.108, 1.04, 2.128);
-    const topBarN = new THREE.Mesh(new THREE.BoxGeometry(0.795, 0.022, 0.022), this.metalMaterial);
-    topBarN.position.set(1.5, 2.036, 2.125);
-    const topBarW = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.022, 0.795), this.metalMaterial);
-    topBarW.position.set(1.105, 2.036, 2.52);
+    const wallNorth = sideTouchesWall(cx, minZ);
+    const wallSouth = sideTouchesWall(cx, maxZ);
+    const wallEast = sideTouchesWall(maxX, cz);
+    const wallWest = sideTouchesWall(minX, cz);
+
+    const addGlassSide = (isHoriz, xPos, zPos) => {
+      const gW = isHoriz ? 0.79 : 0.01;
+      const gD = isHoriz ? 0.01 : 0.79;
+      const panel = new THREE.Mesh(new THREE.BoxGeometry(gW, 2.0, gD), glassMat);
+      panel.position.set(xPos, 1.036, zPos);
+      const topBar = new THREE.Mesh(
+        new THREE.BoxGeometry(isHoriz ? 0.795 : 0.022, 0.022, isHoriz ? 0.022 : 0.795),
+        this.metalMaterial
+      );
+      topBar.position.set(xPos, 2.036, zPos);
+      shower.add(panel, topBar);
+    };
+
+    if (!wallNorth) addGlassSide(true, cx, minZ + 0.005);
+    if (!wallSouth) addGlassSide(true, cx, maxZ - 0.005);
+    if (!wallWest) addGlassSide(false, minX + 0.005, cz);
+    if (!wallEast) addGlassSide(false, maxX - 0.005, cz);
+
+    // Corner/wall vertical metal uprights at the 4 corners whenever adjacent to at least one glass side
+    const corners = [
+      { x: minX + 0.01, z: minZ + 0.01, glassAdj: !wallNorth || !wallWest },
+      { x: maxX - 0.01, z: minZ + 0.01, glassAdj: !wallNorth || !wallEast },
+      { x: maxX - 0.01, z: maxZ - 0.01, glassAdj: !wallSouth || !wallEast },
+      { x: minX + 0.01, z: maxZ - 0.01, glassAdj: !wallSouth || !wallWest },
+    ];
+    for (const c of corners) {
+      if (c.glassAdj) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.024, 2.01, 0.024), this.metalMaterial);
+        post.position.set(c.x, 1.04, c.z);
+        shower.add(post);
+      }
+    }
+
+    // Door handle on primary open glass face opposite the anchored wall
+    const doorFaceX = cx + anchorWall.nx * 0.405 + anchorWall.ux * 0.16;
+    const doorFaceZ = cz + anchorWall.nz * 0.405 + anchorWall.uz * 0.16;
     const doorHandle = new THREE.Mesh(
       new THREE.CylinderGeometry(0.009, 0.009, 0.34, 12),
       this.metalMaterial
     );
-    doorHandle.position.set(1.26, 1.06, 2.105);
-    shower.add(profEast, profSouth, cornerPost, topBarN, topBarW, doorHandle);
+    doorHandle.position.set(doorFaceX, 1.06, doorFaceZ);
+    shower.add(doorHandle);
 
-    // Thermostatic shower column + rainfall showerhead on East wall inside 80x80 box
+    // Thermostatic shower column + rainfall showerhead mounted on the anchored wall facing inward
+    const colGroup = new THREE.Group();
+    const backWallX = cx - anchorWall.nx * 0.4;
+    const backWallZ = cz - anchorWall.nz * 0.4;
+    colGroup.position.set(backWallX, 0, backWallZ);
+    colGroup.rotation.y = Math.atan2(anchorWall.nx, anchorWall.nz);
+
     const mixer = new THREE.Mesh(
       new THREE.CylinderGeometry(0.02, 0.02, 0.25, 14),
       this.metalMaterial
     );
-    mixer.rotation.x = Math.PI / 2;
-    mixer.position.set(1.86, 1.1, 2.52);
+    mixer.rotation.z = Math.PI / 2;
+    mixer.position.set(0, 1.1, 0.04);
     const riser = new THREE.Mesh(
       new THREE.CylinderGeometry(0.01, 0.01, 1.04, 12),
       this.metalMaterial
     );
-    riser.position.set(1.87, 1.62, 2.52);
+    riser.position.set(0, 1.62, 0.03);
     const arm = new THREE.Mesh(
       new THREE.CylinderGeometry(0.01, 0.01, 0.35, 12),
       this.metalMaterial
     );
-    arm.rotation.z = Math.PI / 2;
-    arm.position.set(1.7, 2.14, 2.52);
+    arm.rotation.x = Math.PI / 2;
+    arm.position.set(0, 2.14, 0.2);
     const rainHead = new THREE.Mesh(
       new THREE.CylinderGeometry(0.125, 0.125, 0.012, 26),
       this.metalMaterial
     );
-    rainHead.position.set(1.54, 2.125, 2.52);
-    shower.add(mixer, riser, arm, rainHead);
+    rainHead.position.set(0, 2.125, 0.36);
 
-    // Corner caddy shelf + spa bottles
+    // Caddy shelf + spa bottles mounted next to mixer on anchored wall
     const shelf = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.014, 0.1), this.metalMaterial);
-    shelf.position.set(1.72, 1.24, 2.86);
+    shelf.position.set(0.22, 1.24, 0.055);
     const b1 = new THREE.Mesh(
       new THREE.CylinderGeometry(0.024, 0.024, 0.13, 14),
       new THREE.MeshStandardMaterial({ color: 0x3f574b, roughness: 0.3 })
     );
-    b1.position.set(1.67, 1.31, 2.86);
+    b1.position.set(0.18, 1.31, 0.055);
     const b2 = new THREE.Mesh(
       new THREE.CylinderGeometry(0.022, 0.022, 0.1, 14),
       new THREE.MeshStandardMaterial({ color: 0xd8c3a5, roughness: 0.35 })
     );
-    b2.position.set(1.76, 1.295, 2.86);
-    shower.add(shelf, b1, b2);
+    b2.position.set(0.26, 1.295, 0.055);
 
-    this.roomShellContainer.add(shower);
+    colGroup.add(mixer, riser, arm, rainHead, shelf, b1, b2);
+    shower.add(colGroup);
+
+    shower.traverse((obj) => {
+      if (obj.isMesh) {
+        obj.userData.fixtureType = 'shower';
+      }
+    });
+
+    if (this.showerLight) {
+      this.showerLight.position.set(cx, 2.55, cz);
+    }
+
+    this.showerContainer.add(shower);
     this.showerGroup = shower;
   }
 
@@ -1050,6 +1386,226 @@ export class BathroomRoom {
     this.applyWallBundle(this.textureLib.getPresetBundle(preset));
   }
 
+  applySingleWallBundle(wallId, bundle) {
+    if (!wallId || !bundle) return;
+    if (bundle.map) bundle.map.updateMatrix();
+    if (bundle.bumpMap) bundle.bumpMap.updateMatrix();
+    let mat = this.perWallMaterials.get(wallId);
+    if (!mat) {
+      mat = new THREE.MeshStandardMaterial({
+        roughness: 0.35,
+        metalness: 0.04,
+      });
+      this.perWallMaterials.set(wallId, mat);
+    }
+    mat.map = bundle.map;
+    mat.bumpMap = bundle.bumpMap;
+    mat.bumpScale = bundle.bumpScale ?? 0.01;
+    mat.roughness = bundle.roughness ?? 0.35;
+    mat.metalness = bundle.metalness ?? 0.04;
+    mat.needsUpdate = true;
+    this.rebuildWalls();
+  }
+
+  clearSingleWallMaterial(wallId) {
+    const mat = this.perWallMaterials.get(wallId);
+    if (mat) {
+      mat.dispose();
+      this.perWallMaterials.delete(wallId);
+      this.rebuildWalls();
+    }
+  }
+
+  clearAllSingleWallMaterials() {
+    if (this.perWallMaterials.size === 0) return;
+    for (const mat of this.perWallMaterials.values()) {
+      mat.dispose();
+    }
+    this.perWallMaterials.clear();
+    this.rebuildWalls();
+  }
+
+  setHoveredWall(wallId) {
+    if (this.hoveredWallId === wallId) return;
+    this.hoveredWallId = wallId;
+    if (!wallId) {
+      this.hoverHighlightMesh.visible = false;
+      return;
+    }
+    const seg = this.getBaseWallSegments().find((s) => s.id === wallId);
+    if (!seg) {
+      this.hoverHighlightMesh.visible = false;
+      return;
+    }
+    this.hoverHighlightMesh.scale.set(seg.len, ROOM_HEIGHT, 1);
+    const mx = (seg.p1.x + seg.p2.x) * 0.5 + seg.nx * 0.008;
+    const mz = (seg.p1.z + seg.p2.z) * 0.5 + seg.nz * 0.008;
+    this.hoverHighlightMesh.position.set(mx, ROOM_HEIGHT * 0.5, mz);
+    this.hoverHighlightMesh.rotation.set(0, Math.atan2(seg.nx, seg.nz), 0);
+    this.hoverHighlightMesh.visible = true;
+  }
+
+  setSelectedFixtureHighlight(fixtureType) {
+    if (!fixtureType) {
+      this.fixtureOutlineMesh.visible = false;
+      return;
+    }
+    if (fixtureType === 'shower') {
+      const sh = this.getShowerAABB();
+      if (!sh) {
+        this.fixtureOutlineMesh.visible = false;
+        return;
+      }
+      this.fixtureOutlineMesh.position.set(sh.cx, 0.042, sh.cz);
+      this.fixtureOutlineMesh.rotation.set(-Math.PI / 2, 0, Math.PI / 4);
+      this.fixtureOutlineMesh.scale.set(1.16, 1.16, 1);
+      this.fixtureOutlineMesh.visible = true;
+    } else if (fixtureType === 'vanity') {
+      const v = this.getVanityPoseAndAABB();
+      const cx = (v.minX + v.maxX) * 0.5;
+      const cz = (v.minZ + v.maxZ) * 0.5;
+      this.fixtureOutlineMesh.position.set(cx, 0.012, cz);
+      this.fixtureOutlineMesh.rotation.set(-Math.PI / 2, 0, Math.PI / 4);
+      const sx = (v.maxX - v.minX) * 1.42;
+      const sz = (v.maxZ - v.minZ) * 1.42;
+      this.fixtureOutlineMesh.scale.set(sx, sz, 1);
+      this.fixtureOutlineMesh.visible = true;
+    }
+  }
+
+  boxesOverlap(a, b, pad = 0.02) {
+    if (!a || !b) return false;
+    return (
+      a.maxX > b.minX + pad &&
+      a.minX < b.maxX - pad &&
+      a.maxZ > b.minZ + pad &&
+      a.minZ < b.maxZ - pad
+    );
+  }
+
+  getForbiddenFixtureBoxes() {
+    // North wall Bidet & WC + West wall Door clear zone + East Window zone
+    const isFirst = this.roomType === 'first';
+    return [
+      // Bidet & WC along North wall
+      { minX: 0.3, maxX: 1.54, minZ: -0.05, maxZ: 0.5, kind: 'sanitary' },
+      // West doorway clear ingress
+      isFirst
+        ? { minX: -0.05, maxX: 0.55, minZ: 0.58, maxZ: 1.42, kind: 'door' }
+        : { minX: 0.1, maxX: 0.65, minZ: 0.9, maxZ: 1.74, kind: 'door' },
+      // East 100x100 window at 80cm from floor (keep clear of 85cm vanity/mirror & 200cm shower!)
+      isFirst
+        ? { minX: 1.42, maxX: 1.95, minZ: 0.18, maxZ: 1.18, kind: 'window' }
+        : { minX: 1.42, maxX: 1.95, minZ: 0.25, maxZ: 1.25, kind: 'window' },
+    ];
+  }
+
+  findNearestVanityPlacement(wx, wz) {
+    const segs = this.getBaseWallSegments().filter((s) => s.len >= 0.85);
+    const shBox = this.getShowerAABB();
+    const forbidden = this.getForbiddenFixtureBoxes();
+
+    let best = null;
+    let bestDistSq = Infinity;
+
+    for (const seg of segs) {
+      const halfMin = Math.min(0.48, seg.len * 0.45);
+      for (let s = halfMin; s <= seg.len - halfMin + 0.001; s += 0.02) {
+        const cand = { wallId: seg.id, s: Math.min(seg.len - halfMin, s) };
+        const info = this.getVanityPoseAndAABB(cand, shBox);
+        if (info.spanR - info.spanL < 0.82) continue;
+        if (!this.isBoxInsideRoom(info, 0.025)) continue;
+        if (shBox && this.boxesOverlap(info, shBox, 0.015)) continue;
+        if (forbidden.some((fb) => this.boxesOverlap(info, fb, 0.01))) continue;
+
+        const px = (info.minX + info.maxX) * 0.5;
+        const pz = (info.minZ + info.maxZ) * 0.5;
+        const dSq = (px - wx) ** 2 + (pz - wz) ** 2;
+        if (dSq < bestDistSq) {
+          bestDistSq = dSq;
+          best = { wallId: seg.id, s: Math.round(cand.s * 1000) / 1000 };
+        }
+      }
+    }
+
+    return best || this.vanityPlacement;
+  }
+
+  findNearestShowerPlacement(wx, wz) {
+    const segs = this.getBaseWallSegments().filter((s) => s.len >= 0.8);
+    const vanInfo = this.getVanityPoseAndAABB(this.vanityPlacement, null);
+    const forbidden = this.getForbiddenFixtureBoxes();
+
+    let best = null;
+    let bestDistSq = Infinity;
+
+    for (const seg of segs) {
+      const samples = new Set([0.4, seg.len - 0.4]);
+      for (let s = 0.4; s <= seg.len - 0.4 + 0.001; s += 0.02) {
+        samples.add(Math.min(seg.len - 0.4, s));
+      }
+
+      for (const rawS of samples) {
+        // Magnetic corner snap when within 10 cm of either end of the wall
+        let s = rawS;
+        if (Math.abs(s - 0.4) < 0.1) s = 0.4;
+        else if (Math.abs(s - (seg.len - 0.4)) < 0.1) s = seg.len - 0.4;
+
+        const cand = { wallId: seg.id, s };
+        const box = this.getShowerAABB(cand, true);
+        if (!this.isBoxInsideRoom(box, 0.025)) continue;
+        if (this.boxesOverlap(box, vanInfo, 0.015)) continue;
+        if (forbidden.some((fb) => this.boxesOverlap(box, fb, 0.01))) continue;
+
+        const dSq = (box.cx - wx) ** 2 + (box.cz - wz) ** 2;
+        if (dSq < bestDistSq) {
+          bestDistSq = dSq;
+          best = { wallId: seg.id, s: Math.round(s * 1000) / 1000 };
+        }
+      }
+    }
+
+    return best || this.showerPlacement;
+  }
+
+  setFixturesConfig({ showerEnabled, showerPlacement, vanityPlacement }) {
+    let needsWallRebuild = false;
+    let needsShowerRebuild = false;
+
+    if (typeof showerEnabled === 'boolean' && showerEnabled !== this.showerEnabled) {
+      this.showerEnabled = showerEnabled;
+      needsWallRebuild = true;
+      needsShowerRebuild = true;
+    }
+    if (
+      showerPlacement &&
+      (showerPlacement.wallId !== this.showerPlacement.wallId ||
+        Math.abs(showerPlacement.s - this.showerPlacement.s) > 0.001)
+    ) {
+      this.showerPlacement = { ...showerPlacement };
+      needsWallRebuild = true;
+      needsShowerRebuild = true;
+    }
+    if (
+      vanityPlacement &&
+      (vanityPlacement.wallId !== this.vanityPlacement.wallId ||
+        Math.abs(vanityPlacement.s - this.vanityPlacement.s) > 0.001)
+    ) {
+      this.vanityPlacement = { ...vanityPlacement };
+      needsWallRebuild = true;
+    }
+
+    if (needsWallRebuild) this.rebuildWalls();
+    if (needsShowerRebuild) this.rebuildShower();
+  }
+
+  setShowerTileHeightMode(mode) {
+    if (this.showerTileHeightMode !== mode) {
+      this.showerTileHeightMode = mode;
+      this.rebuildWalls();
+    }
+  }
+
   setTileHeightMode(mode) {
     this.tileHeightMode = mode;
     this.rebuildWalls();
@@ -1128,59 +1684,52 @@ export class BathroomRoom {
     }
   }
 
-  // Exact collision clamp for First-Person walking inside either bathroom
+  // Exact collision clamp for First-Person walking inside either bathroom (tracks moved shower & vanity!)
   clampWalkPosition(x, z, margin = 0.24) {
     let cx = x;
     let cz = z;
 
     if (this.roomType === 'first') {
-      // Rectangular 190 x 292 cm first-floor bathroom
       cx = Math.max(margin, Math.min(1.9 - margin, cx));
       cz = Math.max(margin, Math.min(2.92 - margin, cz));
-
-      // North-wall Bidet & WC (x = 0.28..1.45, z < 0.50)
-      if (cz < 0.5 + margin * 0.65 && cx > 0.28 && cx < 1.45) {
-        cz = Math.max(cz, 0.5 + margin * 0.65);
+    } else {
+      cz = Math.max(margin, Math.min(2.8 - margin, cz));
+      cx = Math.min(1.9 - margin, cx);
+      let minX = margin;
+      if (cz > 1.9 - margin * 0.7) {
+        minX = 0.54 + margin;
+      } else if (cz > 0.8 - margin * 0.7) {
+        minX = 0.14 + margin;
       }
-
-      // SE corner 80x80 shower box (x = 1.10..1.90, z = 2.12..2.92)
-      const shBoundX = 1.1 - margin * 0.75;
-      const shBoundZ = 2.12 - margin * 0.75;
-      if (cx > shBoundX && cz > shBoundZ) {
-        if (cx - shBoundX < cz - shBoundZ) {
-          cx = shBoundX;
-        } else {
-          cz = shBoundZ;
-        }
-      }
-
-      // South-wall Mobile Bagno beside shower (x = 0.00..1.10, z = 2.42..2.92)
-      if (cx <= 1.12 && cz > 2.42 - margin * 0.6) {
-        cz = Math.min(cz, 2.42 - margin * 0.6);
-      }
-
-      return { x: cx, z: cz };
+      cx = Math.max(minX, cx);
     }
 
-    // Stepped 4.68 mq ground-floor bathroom
-    cz = Math.max(margin, Math.min(2.8 - margin, cz));
-    cx = Math.min(1.9 - margin, cx);
-
-    let minX = margin;
-    if (cz > 1.9 - margin * 0.7) {
-      minX = 0.54 + margin;
-    } else if (cz > 0.8 - margin * 0.7) {
-      minX = 0.14 + margin;
-    }
-    cx = Math.max(minX, cx);
-
-    if (cz < 0.5 + margin * 0.65 && cx > 0.28 && cx < 1.45) {
+    // North-wall Bidet & WC
+    if (cz < 0.5 + margin * 0.65 && cx > 0.28 && cx < 1.54) {
       cz = Math.max(cz, 0.5 + margin * 0.65);
     }
 
-    if (cz > 1.32 && cx > 1.38 - margin * 0.6) {
-      cx = Math.min(cx, 1.38 - margin * 0.6);
-    }
+    const pushOutOfBox = (box, pad) => {
+      if (!box) return;
+      const bMinX = box.minX - pad;
+      const bMaxX = box.maxX + pad;
+      const bMinZ = box.minZ - pad;
+      const bMaxZ = box.maxZ + pad;
+      if (cx > bMinX && cx < bMaxX && cz > bMinZ && cz < bMaxZ) {
+        const dLeft = cx - bMinX;
+        const dRight = bMaxX - cx;
+        const dTop = cz - bMinZ;
+        const dBot = bMaxZ - cz;
+        const minD = Math.min(dLeft, dRight, dTop, dBot);
+        if (minD === dLeft) cx = bMinX;
+        else if (minD === dRight) cx = bMaxX;
+        else if (minD === dTop) cz = bMinZ;
+        else cz = bMaxZ;
+      }
+    };
+
+    pushOutOfBox(this.getShowerAABB(), margin * 0.7);
+    pushOutOfBox(this.getVanityPoseAndAABB(), margin * 0.55);
 
     return { x: cx, z: cz };
   }

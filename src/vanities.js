@@ -33,6 +33,14 @@ export const VANITY_MODELS = [
   },
 ];
 
+const MODEL_SPAN_INFO = {
+  milano: { span: 1.01, centerOffset: 0.0 },
+  brera: { span: 1.18, centerOffset: 0.03 },
+  venezia: { span: 1.06, centerOffset: 0.0 },
+  cortina: { span: 1.01, centerOffset: 0.0 },
+  amalfi: { span: 1.36, centerOffset: 0.09 },
+};
+
 export class VanityManager {
   constructor(scene, textureLib, sharedMetalMat, sharedCeramicMat) {
     this.scene = scene;
@@ -84,6 +92,22 @@ export class VanityManager {
     this.currentGroup = null;
     this.currentModelId = 'milano';
     this.roomType = 'ground';
+    this.wallPose = {
+      x: 1.895,
+      z: 2.0,
+      rotY: -Math.PI / 2,
+      availWidth: 1.55,
+    };
+  }
+
+  getNaturalSpan() {
+    return (MODEL_SPAN_INFO[this.currentModelId] || MODEL_SPAN_INFO.milano).span;
+  }
+
+  setWallPose(pose) {
+    if (!pose) return;
+    this.wallPose = { ...this.wallPose, ...pose };
+    this.updateAnchorTransform();
   }
 
   setRoomPlacement(roomType) {
@@ -92,28 +116,20 @@ export class VanityManager {
   }
 
   updateAnchorTransform() {
-    if (this.roomType === 'first') {
-      // Bagno Primo Piano (190x292): South wall (z = 2.915) to the right flank of the 80x80 SE shower (x = 0.00..1.10 = 110 cm)
-      this.anchor.rotation.y = Math.PI;
-      if (this.currentModelId === 'amalfi') {
-        this.anchor.position.set(0.61, 0, 2.915);
-        this.anchor.scale.set(0.76, 1, 0.92);
-      } else if (this.currentModelId === 'brera') {
-        this.anchor.position.set(0.56, 0, 2.915);
-        this.anchor.scale.set(0.86, 1, 0.96);
-      } else if (this.currentModelId === 'venezia') {
-        this.anchor.position.set(0.55, 0, 2.915);
-        this.anchor.scale.set(0.97, 1, 1);
-      } else {
-        this.anchor.position.set(0.55, 0, 2.915);
-        this.anchor.scale.set(1, 1, 1);
-      }
-    } else {
-      // Bagno Pianterreno (4.68 mq): East wall (x = 1.895) to the right of the 100x100 window (z = 1.25..2.80 = 155 cm)
-      this.anchor.position.set(1.895, 0, 2.0);
-      this.anchor.rotation.y = -Math.PI / 2;
-      this.anchor.scale.set(1, 1, 1);
-    }
+    const info = MODEL_SPAN_INFO[this.currentModelId] || MODEL_SPAN_INFO.milano;
+    const avail = Math.max(0.75, this.wallPose.availWidth || 1.55);
+    const scaleX = Math.min(1.0, (avail - 0.03) / info.span);
+    const scaleZ = scaleX < 0.9 ? 0.93 : 1.0;
+
+    // Local +X points to the right when facing local +Z: world tangent of local +X is (cos(rotY), -sin(rotY))
+    const rotY = this.wallPose.rotY;
+    const shiftLocalX = -info.centerOffset * scaleX;
+    const wx = this.wallPose.x + Math.cos(rotY) * shiftLocalX;
+    const wz = this.wallPose.z - Math.sin(rotY) * shiftLocalX;
+
+    this.anchor.position.set(wx, 0, wz);
+    this.anchor.rotation.y = rotY;
+    this.anchor.scale.set(scaleX, 1, scaleZ);
   }
 
   setFinish(finishObj) {
@@ -156,6 +172,7 @@ export class VanityManager {
       if (obj.isMesh) {
         obj.castShadow = true;
         obj.receiveShadow = true;
+        obj.userData.fixtureType = 'vanity';
       }
     });
 

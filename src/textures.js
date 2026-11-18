@@ -641,6 +641,24 @@ function rotateCanvas90(srcCanvas) {
   return out;
 }
 
+export function getCatalogItemKey(item) {
+  const brand = item.brand || 'tecnomat';
+  if (brand === 'baucer') return `baucer:${item.sku}`;
+  if (brand === 'armonie') return `armonie:${item.sku}`;
+  return `tm:${item.sku}`;
+}
+
+export function getCatalogItemThumbUrl(item) {
+  const brand = item.brand || 'tecnomat';
+  if (brand === 'baucer') {
+    return `/baucer-media/${item.thumbPic || item.pic}`;
+  }
+  if (brand === 'armonie') {
+    return `/armonie-media/${item.thumbPic || item.pic}`;
+  }
+  return `/tecnomat-media/${item.pic}?width=220&quality=80`;
+}
+
 export class TextureLibrary {
   constructor(renderer) {
     this.maxAnisotropy = renderer ? Math.min(8, renderer.capabilities.getMaxAnisotropy()) : 4;
@@ -730,31 +748,46 @@ export class TextureLibrary {
     return oriented;
   }
 
-  async getTecnomatBundle(item) {
-    const cacheKey = `tm_${item.sku}`;
+  async getCatalogItemBundle(item) {
+    const brand = item.brand || 'tecnomat';
+    const cacheKey = `cat_${brand}_${item.sku}`;
     if (this.cache.has(cacheKey)) {
       return this.cache.get(cacheKey);
     }
 
-    const facePaths =
-      Array.isArray(item.faces) && item.faces.length > 0 ? item.faces.slice(0, 4) : [item.pic];
-
-    const loadImg = (picPath) =>
+    const loadUrl = (url) =>
       new Promise((resolve, reject) => {
         const el = new Image();
         el.crossOrigin = 'anonymous';
         el.onload = () => resolve(el);
-        el.onerror = () => reject(new Error(`Impossibile caricare texture SKU ${item.sku}`));
-        el.src = `/tecnomat-media/${picPath}?width=640&quality=86`;
+        el.onerror = () => reject(new Error(`Impossibile caricare texture ${brand} ${item.sku}`));
+        el.src = url;
       });
 
-    const loadedImgs = await Promise.all(
-      facePaths.map((p, idx) =>
-        idx === 0 ? loadImg(p) : loadImg(p).catch(() => null)
-      )
-    );
-    const validImgs = loadedImgs.filter(Boolean);
-    const extracted = validImgs.map((im) =>
+    let loadedImgs = [];
+    if (brand === 'baucer') {
+      const primaryUrl = `/baucer-media/${item.pic}`;
+      const fallbackUrl = item.thumbPic ? `/baucer-media/${item.thumbPic}` : primaryUrl;
+      const img = await loadUrl(primaryUrl).catch(() => loadUrl(fallbackUrl));
+      loadedImgs = [img];
+    } else if (brand === 'armonie') {
+      const primaryUrl = `/armonie-media/${item.pic}`;
+      const fallbackUrl = item.thumbPic ? `/armonie-media/${item.thumbPic}` : primaryUrl;
+      const img = await loadUrl(primaryUrl).catch(() => loadUrl(fallbackUrl));
+      loadedImgs = [img];
+    } else {
+      const facePaths =
+        Array.isArray(item.faces) && item.faces.length > 0 ? item.faces.slice(0, 4) : [item.pic];
+      const res = await Promise.all(
+        facePaths.map((p, idx) => {
+          const u = `/tecnomat-media/${p}?width=640&quality=86`;
+          return idx === 0 ? loadUrl(u) : loadUrl(u).catch(() => null);
+        })
+      );
+      loadedImgs = res.filter(Boolean);
+    }
+
+    const extracted = loadedImgs.map((im) =>
       this.extractStudioTile(im, item.w || 60, item.l || 60)
     );
     const tileCanvases = extracted.map((e) => e.tileCanvas);
@@ -791,10 +824,14 @@ export class TextureLibrary {
       roughness,
       metalness: 0.04,
       bumpScale,
-      previewUrl: `/tecnomat-media/${item.pic}?width=220&quality=80`,
+      previewUrl: getCatalogItemThumbUrl(item),
     };
     this.cache.set(cacheKey, bundle);
     return bundle;
+  }
+
+  async getTecnomatBundle(item) {
+    return this.getCatalogItemBundle(item);
   }
 
   extractStudioTile(img, wCm, lCm) {
@@ -817,19 +854,26 @@ export class TextureLibrary {
     let bgR = 0;
     let bgG = 0;
     let bgB = 0;
+    let bgA = 0;
     for (const [cx, cy] of cornerCoords) {
       const ci = (Math.max(0, cy) * iw + Math.max(0, cx)) * 4;
       bgR += data[ci];
       bgG += data[ci + 1];
       bgB += data[ci + 2];
+      bgA += data[ci + 3];
     }
     bgR /= 4;
     bgG /= 4;
     bgB /= 4;
-    const cornersLookLikeStudioBg = bgR > 228 && bgG > 228 && bgB > 228;
+    bgA /= 4;
+    const cornersTransparent = bgA < 40;
+    const cornersLookLikeStudioBg = !cornersTransparent && bgR > 228 && bgG > 228 && bgB > 228;
 
     const isNonBg = (x, y) => {
       const idx = (y * iw + x) * 4;
+      const a = data[idx + 3];
+      if (a < 40) return false;
+      if (cornersTransparent) return true;
       const r = data[idx];
       const g = data[idx + 1];
       const b = data[idx + 2];

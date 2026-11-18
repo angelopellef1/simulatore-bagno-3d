@@ -53,6 +53,12 @@
           <button class="cam-btn" id="btn-door" title="Apri / Chiudi porta in legno 80×210">
             <span>🚪</span> Porta
           </button>
+          <button class="cam-btn tool-btn" id="btn-wall-paint-mode" title="Seleziona una piastrella e fai doppio clic su una singola parete in 3D per applicarla">
+            <span>🖌️</span> Clicca Parete
+          </button>
+          <button class="cam-btn tool-btn" id="btn-move-fixtures-mode" title="Attiva per spostare Mobile Bagno o Box Doccia trascinandoli lungo le pareti">
+            <span>✋</span> Sposta Arredi
+          </button>
           <button class="cam-btn photo-btn" id="btn-download-photo" title="Scarica foto PNG della vista 3D attiva">
             <span>📷</span> Scarica Foto
           </button>
@@ -82,7 +88,7 @@
         <section class="tab-content active" id="tab-floors">
           <div class="section-header">
             <h2>Gres Porcellanato Pavimento</h2>
-            <span class="badge-dim">Catalogo Tecnomat</span>
+            <span class="badge-dim" id="floor-catalog-badge">3 Cataloghi</span>
           </div>
           <div id="floor-catalog-mount"></div>
         </section>
@@ -91,35 +97,77 @@
         <section class="tab-content" id="tab-walls">
           <div class="section-header">
             <h2>Gres & Rivestimenti Pareti</h2>
-            <span class="badge-dim">Catalogo Tecnomat</span>
+            <span class="badge-dim" id="wall-catalog-badge">3 Cataloghi</span>
           </div>
 
-          <!-- Selettore sotto-zona: Pareti Generali vs Area Mobile & Specchio -->
-          <div class="zone-switch" id="wall-zone-switch">
+          <!-- Controlli Altezza Rivestimento, Altezza Fissa Doccia & Pittura (sempre visibili!) -->
+          <div class="wall-top-options">
+            <label class="sub-label">Altezza posa piastrelle (pareti)</label>
+            <div class="pill-group" id="tile-height-group">
+              <button class="pill-btn" data-height="full">Tutta altezza (270)</button>
+              <button class="pill-btn active" data-height="door">Filo porta (210)</button>
+              <button class="pill-btn" data-height="half">Boiserie (120)</button>
+            </div>
+
+            <div id="shower-height-wrap" style="margin-top:9px">
+              <label class="sub-label">Altezza piastrelle in doccia</label>
+              <div class="pill-group" id="shower-height-group">
+                <button class="pill-btn active" data-sheight="fixed-210" title="Mantiene le piastrelle in doccia fisse a 210 cm anche variando il resto del bagno">
+                  🔒 Fissa 210
+                </button>
+                <button class="pill-btn" data-sheight="fixed-270" title="Mantiene le piastrelle in doccia fisse a 270 cm anche variando il resto del bagno">
+                  🔒 Fissa 270
+                </button>
+                <button class="pill-btn" data-sheight="follow" title="Varia insieme alle altre pareti">
+                  Segue pareti
+                </button>
+              </div>
+            </div>
+
+            <div class="paint-inline" id="paint-color-section">
+              <span class="sub-label-inline">Pittura:</span>
+              <div class="color-dots compact" id="paint-colors"></div>
+            </div>
+          </div>
+
+          <!-- Selettore sotto-zona: Pareti Generali / Singola Parete / Area Mobile -->
+          <div class="zone-switch three-cols" id="wall-zone-switch">
             <button type="button" class="zone-btn active" data-zone="main">
-              🧱 Pareti Generali
+              🧱 Generali
+            </button>
+            <button type="button" class="zone-btn" data-zone="single">
+              🖌️ Singola <span class="zone-dot" id="single-wall-dot" style="display:none"></span>
             </button>
             <button type="button" class="zone-btn" data-zone="vanity">
-              🪞 Area Mobile <span class="zone-dot" id="vanity-zone-dot" style="display:none"></span>
+              🪞 Mobile <span class="zone-dot" id="vanity-zone-dot" style="display:none"></span>
             </button>
+          </div>
+
+          <div id="custom-walls-box" class="custom-walls-box" style="display:none; margin-bottom:10px;">
+            <div class="custom-walls-header">
+              <span>Pareti personalizzate:</span>
+              <button type="button" class="catalog-reset-btn" id="btn-reset-all-walls">Ripristina tutte</button>
+            </div>
+            <div class="custom-walls-chips" id="custom-walls-list"></div>
           </div>
 
           <!-- PANE 1: PARETI GENERALI -->
           <div id="wall-zone-main">
+            <div id="wall-catalog-mount"></div>
+          </div>
+
+          <!-- PANE 2: SINGOLA PARETE (CLICCA SU PARETE 3D) -->
+          <div id="wall-zone-single" style="display:none">
             <div class="wall-top-options">
-              <label class="sub-label">Altezza posa piastrelle</label>
-              <div class="pill-group" id="tile-height-group">
-                <button class="pill-btn" data-height="full">Tutta altezza (270)</button>
-                <button class="pill-btn active" data-height="door">Filo porta (210)</button>
-                <button class="pill-btn" data-height="half">Boiserie (120)</button>
-              </div>
-              <div class="paint-inline" id="paint-color-section">
-                <span class="sub-label-inline">Pittura:</span>
-                <div class="color-dots compact" id="paint-colors"></div>
+              <div class="single-wall-hint-box">
+                <div class="accent-toggle-title">🖌️ Applica su Singola Parete</div>
+                <div class="accent-toggle-sub" id="single-wall-hint-text">
+                  1. Scegli una piastrella qui sotto · 2. Fai <strong>doppio clic</strong> sulla parete nella vista 3D!
+                </div>
               </div>
             </div>
 
-            <div id="wall-catalog-mount"></div>
+            <div id="single-wall-catalog-mount"></div>
           </div>
 
           <!-- PANE 2: AREA MOBILE & SPECCHIO -->
@@ -158,6 +206,28 @@
 
         <!-- TAB MOBILE BAGNO -->
         <section class="tab-content" id="tab-vanity">
+          <div class="wall-top-options">
+            <div class="accent-toggle-row">
+              <div>
+                <div class="accent-toggle-title">✋ Posizione Mobile & Box Doccia</div>
+                <div class="accent-toggle-sub">Attiva "✋ Sposta Arredi" in alto per trascinare mobile o doccia lungo le pareti</div>
+              </div>
+              <button type="button" class="pill-btn accent-enable-btn" id="btn-reset-fixtures" title="Ripristina la posizione originale di mobile e doccia">
+                ↺ Reset
+              </button>
+            </div>
+
+            <div class="accent-toggle-row" style="margin-top:7px">
+              <div>
+                <div class="accent-toggle-title">🚿 Box Doccia 80×80</div>
+                <div class="accent-toggle-sub" id="shower-presence-sub">Ancorato a parete · trascinabile</div>
+              </div>
+              <button type="button" class="pill-btn accent-enable-btn" id="btn-toggle-shower-box">
+                Presente
+              </button>
+            </div>
+          </div>
+
           <div class="section-header">
             <h2>Modello Mobile Bagno</h2>
             <span class="badge-dim" id="vanity-wall-badge">Destra finestra (155 cm)</span>

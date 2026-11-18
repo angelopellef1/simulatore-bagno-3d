@@ -1,21 +1,31 @@
 import { defineConfig } from 'vite';
 
-const tecnomatMediaProxy = {
-  target: 'https://www.tecnomat.it/pub/media/catalog/product',
-  changeOrigin: true,
-  secure: false,
-  rewrite: (path) => path.replace(/^\/tecnomat-media/, ''),
+const mediaProxies = {
+  '/tecnomat-media': {
+    target: 'https://www.tecnomat.it/pub/media/catalog/product',
+    changeOrigin: true,
+    secure: false,
+    rewrite: (path) => path.replace(/^\/tecnomat-media/, ''),
+  },
+  '/baucer-media': {
+    target: 'https://www.progettobaucer.it',
+    changeOrigin: true,
+    secure: false,
+    rewrite: (path) => path.replace(/^\/baucer-media/, ''),
+  },
+  '/armonie-media': {
+    target: 'https://www.armonieceramiche.com',
+    changeOrigin: true,
+    secure: false,
+    rewrite: (path) => path.replace(/^\/armonie-media/, ''),
+  },
 };
 
 export default defineConfig({
   server: {
-    proxy: {
-      '/tecnomat-media': tecnomatMediaProxy,
-    },
+    proxy: mediaProxies,
   },
   preview: {
-    proxy: {
-      '/tecnomat-media': tecnomatMediaProxy,
-    },
+    proxy: mediaProxies,
   },
 });
