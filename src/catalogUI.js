@@ -1,7 +1,13 @@
 import { getCatalogItemKey, getCatalogItemThumbUrl } from './textures.js';
 
 const BRAND_OPTIONS = [
-  { id: 'ALL', label: 'Tutti i cataloghi', short: 'Tutti' },
+  { id: 'ALL', label: 'Tutti i 9 cataloghi', short: 'Tutti' },
+  { id: 'florim', label: 'Florim (Rex, Casa dolce casa, Cerim, CEDIT, Stone)', short: 'Florim' },
+  { id: 'mirage', label: 'Mirage Ceramiche', short: 'Mirage' },
+  { id: 'caesar', label: 'Caesar Ceramiche', short: 'Caesar' },
+  { id: 'fap', label: 'FAP Ceramiche', short: 'FAP' },
+  { id: 'bardelli', label: 'Gruppo Bardelli (Bardelli, Vogue, Appiani)', short: 'Bardelli' },
+  { id: 'serenissima', label: 'Serenissima Ceramiche', short: 'Serenissima' },
   { id: 'tecnomat', label: 'Tecnomat', short: 'Tecnomat' },
   { id: 'baucer', label: 'Progetto Baucer', short: 'Baucer' },
   { id: 'armonie', label: 'Armonie Ceramiche', short: 'Armonie' },
@@ -23,6 +29,12 @@ const BRAND_LABELS = {
   tecnomat: 'Tecnomat',
   baucer: 'Progetto Baucer',
   armonie: 'Armonie',
+  florim: 'Florim',
+  mirage: 'Mirage',
+  caesar: 'Caesar Ceramiche',
+  fap: 'FAP Ceramiche',
+  bardelli: 'Gruppo Bardelli',
+  serenissima: 'Serenissima',
 };
 
 const PAGE_STEP = 24;
@@ -213,7 +225,7 @@ export class CatalogSelector {
     if (isPresets) {
       this.searchInput.placeholder = 'Cerca piastrella (passa ai cataloghi)...';
     } else if (this.brand === 'ALL') {
-      this.searchInput.placeholder = `Cerca tra ${scoped.length} gres (Tecnomat, Baucer, Armonie)...`;
+      this.searchInput.placeholder = `Cerca tra ${scoped.length} gres (Florim, Mirage, Caesar, FAP, Bardelli...)...`;
     } else {
       const bLabel = BRAND_OPTIONS.find((b) => b.id === this.brand)?.label || this.brand;
       this.searchInput.placeholder = `Cerca in ${bLabel} (${scoped.length} articoli)...`;
@@ -495,7 +507,7 @@ export class CatalogSelector {
     const filtered = this.getFilteredCatalog();
     const scopeName =
       this.brand === 'ALL'
-        ? '3 cataloghi'
+        ? '9 cataloghi'
         : BRAND_OPTIONS.find((b) => b.id === this.brand)?.label || this.brand;
     this.countText.textContent = `${filtered.length} di ${scopedTotal} articoli (${scopeName})`;
 
@@ -514,7 +526,16 @@ export class CatalogSelector {
       const key = getCatalogItemKey(item);
       const brandId = item.brand || 'tecnomat';
       const brandLabel = item.brandLabel || BRAND_LABELS[brandId] || 'Tecnomat';
-      const shortBadge = brandId === 'baucer' ? 'Baucer' : brandLabel;
+      let shortBadge = brandLabel;
+      if (brandId === 'baucer') shortBadge = 'Baucer';
+      else if (brandId === 'caesar') shortBadge = 'Caesar';
+      else if (brandId === 'fap') shortBadge = 'FAP';
+      else if (brandId === 'florim') {
+        shortBadge = brandLabel.replace(/^Florim\s*·\s*/i, '').replace(/\s*\(.*\)$/, '');
+        if (!/florim/i.test(shortBadge)) shortBadge = `Florim · ${shortBadge}`;
+      } else if (brandId === 'bardelli') {
+        shortBadge = brandLabel.replace(/^Gruppo Bardelli\s*·\s*/i, '');
+      }
       const thumbUrl = getCatalogItemThumbUrl(item);
       const isSelected = this.selectedKey === key;
       const isLoading = this.loadingKey === key;
@@ -572,6 +593,442 @@ export class CatalogSelector {
       const rem = filtered.length - this.visibleLimit;
       this.loadMoreBtn.style.display = 'block';
       this.loadMoreBtn.textContent = `Mostra altre piastrelle (+${Math.min(PAGE_STEP, rem)} di ${rem})`;
+    } else {
+      this.loadMoreBtn.style.display = 'none';
+    }
+  }
+}
+
+const VANITY_BRAND_OPTIONS = [
+  { id: 'ALL', label: 'Tutti i mobili bagno', short: 'Tutti' },
+  { id: 'deghi', label: 'Deghi · Mobili Bagno Sospesi', short: 'Deghi' },
+  { id: 'iperceramica', label: 'Iperceramica · Serie AVIVO Cannettato', short: 'Iperceramica' },
+  { id: 'PRESETS', label: 'Collezione Atelier 3D Base', short: 'Atelier 3D' },
+];
+
+const VANITY_WIDTH_CHIPS = [
+  { id: 'ALL', label: 'Tutte' },
+  { id: '60', label: '60 cm' },
+  { id: '70', label: '70-75 cm' },
+  { id: '80', label: '80 cm' },
+  { id: '90', label: '90 cm' },
+  { id: '100', label: '100 cm' },
+  { id: '120', label: '120+ cm' },
+];
+
+const VANITY_PAGE_STEP = 18;
+
+export class VanityCatalogSelector {
+  constructor({ mountEl, catalogItems, presetModels, initialModelId, onSelectModel }) {
+    this.mountEl = mountEl;
+    this.catalogItems = Array.isArray(catalogItems) ? catalogItems : [];
+    this.presetModels = Array.isArray(presetModels) ? presetModels : [];
+    this.onSelectModel = onSelectModel;
+
+    this.byId = new Map();
+    this.brandCounts = { deghi: 0, iperceramica: 0 };
+    for (const it of this.catalogItems) {
+      const b = it.brand || 'iperceramica';
+      this.brandCounts[b] = (this.brandCounts[b] || 0) + 1;
+      this.byId.set(it.id, it);
+    }
+    for (const pm of this.presetModels) {
+      this.byId.set(pm.id, { ...pm, isPreset: true });
+    }
+
+    this.brand = 'ALL';
+    this.query = '';
+    this.widthFilter = 'ALL';
+    this.openingFilter = 'ALL';
+    this.colorFilter = 'ALL';
+    this.visibleLimit = VANITY_PAGE_STEP;
+
+    this.selectedId = initialModelId || (this.presetModels[0]?.id ?? 'milano');
+    this.buildDOM();
+    this.refreshFacetDropdowns();
+    this.updateBanner();
+    this.renderResults();
+  }
+
+  getThumbUrl(item) {
+    if (!item || item.isPreset) return null;
+    if (item.brand === 'deghi') {
+      return `/deghi-media/${item.thumbPic || item.pic}`;
+    }
+    return `/iperceramica-media/${item.thumbPic || item.pic}`;
+  }
+
+  getBrandScopedCatalogItems() {
+    if (this.brand === 'PRESETS') return [];
+    if (this.brand === 'ALL') return this.catalogItems;
+    return this.catalogItems.filter((it) => (it.brand || 'iperceramica') === this.brand);
+  }
+
+  matchesWidthChip(widthCm) {
+    if (this.widthFilter === 'ALL') return true;
+    const w = Number(widthCm) || 90;
+    if (this.widthFilter === '60') return w <= 65;
+    if (this.widthFilter === '70') return w >= 68 && w <= 76;
+    if (this.widthFilter === '80') return w >= 78 && w <= 86;
+    if (this.widthFilter === '90') return w >= 88 && w <= 96;
+    if (this.widthFilter === '100') return w >= 98 && w <= 112;
+    if (this.widthFilter === '120') return w >= 115;
+    return String(w) === this.widthFilter;
+  }
+
+  setSelection(modelId, { triggerCallback = false } = {}) {
+    if (!modelId) return;
+    this.selectedId = modelId;
+    this.updateBanner();
+    this.renderResults();
+    if (triggerCallback && this.onSelectModel) {
+      this.onSelectModel(modelId, this.byId.get(modelId) || null);
+    }
+  }
+
+  setBrand(nextBrand) {
+    this.brand = nextBrand;
+    this.visibleLimit = VANITY_PAGE_STEP;
+    this.brandSelect.value = nextBrand;
+    this.brandPills.querySelectorAll('.brand-pill').forEach((p) => {
+      p.classList.toggle('active', p.dataset.brand === nextBrand);
+    });
+    this.refreshFacetDropdowns();
+    this.renderResults();
+  }
+
+  refreshFacetDropdowns() {
+    const isPresets = this.brand === 'PRESETS';
+    const scoped = this.getBrandScopedCatalogItems();
+    const openCounts = new Map();
+    const colorCounts = new Map();
+
+    for (const it of scoped) {
+      if (it.opening) openCounts.set(it.opening, (openCounts.get(it.opening) || 0) + 1);
+      if (it.color) colorCounts.set(it.color, (colorCounts.get(it.color) || 0) + 1);
+    }
+
+    if (this.openingFilter !== 'ALL' && !openCounts.has(this.openingFilter)) {
+      this.openingFilter = 'ALL';
+    }
+    if (this.colorFilter !== 'ALL' && !colorCounts.has(this.colorFilter)) {
+      this.colorFilter = 'ALL';
+    }
+
+    this.openSelect.innerHTML =
+      `<option value="ALL">Tutte le aperture</option>` +
+      Array.from(openCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([op, cnt]) => `<option value="${op}">${op} (${cnt})</option>`)
+        .join('');
+    this.openSelect.value = this.openingFilter;
+    this.openSelect.disabled = isPresets;
+
+    this.colSelect.innerHTML =
+      `<option value="ALL">Tutti i colori</option>` +
+      Array.from(colorCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([col, cnt]) => `<option value="${col}">${col} (${cnt})</option>`)
+        .join('');
+    this.colSelect.value = this.colorFilter;
+    this.colSelect.disabled = isPresets;
+  }
+
+  buildDOM() {
+    const countForBrand = (id) => {
+      if (id === 'ALL') return this.catalogItems.length + this.presetModels.length;
+      if (id === 'PRESETS') return this.presetModels.length;
+      return this.brandCounts[id] || 0;
+    };
+
+    this.mountEl.innerHTML = `
+      <div class="active-tile-banner vanity-active-banner">
+        <div class="active-tile-thumb vanity-banner-thumb"></div>
+        <div class="active-tile-info">
+          <div class="active-tile-title"></div>
+          <div class="active-tile-sub"></div>
+          <div class="active-tile-links"></div>
+        </div>
+      </div>
+
+      <div class="brand-menu-box">
+        <div class="brand-menu-row">
+          <label class="sub-label-inline">Catalogo:</label>
+          <select class="catalog-select brand-select" aria-label="Seleziona catalogo mobili bagno">
+            ${VANITY_BRAND_OPTIONS.map(
+              (b) => `<option value="${b.id}">${b.label} (${countForBrand(b.id)})</option>`
+            ).join('')}
+          </select>
+        </div>
+        <div class="brand-pills">
+          ${VANITY_BRAND_OPTIONS.map(
+            (b) =>
+              `<button type="button" class="brand-pill ${b.id === this.brand ? 'active' : ''}" data-brand="${b.id}">${b.short}</button>`
+          ).join('')}
+        </div>
+      </div>
+
+      <div class="catalog-search-wrap">
+        <input
+          type="search"
+          class="catalog-search-input"
+          placeholder="Cerca mobile Avivo (60, 75, 90, 120, rovere, verde, 2 cassetti, smart...)"
+          autocomplete="off"
+        />
+      </div>
+
+      <div class="effect-chips vanity-width-chips"></div>
+
+      <div class="catalog-filters-row">
+        <select class="catalog-select open-select" aria-label="Filtra per apertura"></select>
+        <select class="catalog-select col-select" aria-label="Filtra per colore"></select>
+      </div>
+
+      <div class="catalog-count-bar">
+        <span class="catalog-count-text"></span>
+        <button type="button" class="catalog-reset-btn" style="display:none">Azzera filtri</button>
+      </div>
+
+      <div class="swatch-grid catalog-grid vanity-catalog-grid"></div>
+
+      <button type="button" class="load-more-btn" style="display:none"></button>
+    `;
+
+    this.bannerThumb = this.mountEl.querySelector('.vanity-banner-thumb');
+    this.bannerTitle = this.mountEl.querySelector('.active-tile-title');
+    this.bannerSub = this.mountEl.querySelector('.active-tile-sub');
+    this.bannerLinks = this.mountEl.querySelector('.active-tile-links');
+    this.brandSelect = this.mountEl.querySelector('.brand-select');
+    this.brandPills = this.mountEl.querySelector('.brand-pills');
+    this.searchInput = this.mountEl.querySelector('.catalog-search-input');
+    this.chipsContainer = this.mountEl.querySelector('.vanity-width-chips');
+    this.openSelect = this.mountEl.querySelector('.open-select');
+    this.colSelect = this.mountEl.querySelector('.col-select');
+    this.countText = this.mountEl.querySelector('.catalog-count-text');
+    this.resetBtn = this.mountEl.querySelector('.catalog-reset-btn');
+    this.gridEl = this.mountEl.querySelector('.vanity-catalog-grid');
+    this.loadMoreBtn = this.mountEl.querySelector('.load-more-btn');
+
+    this.brandSelect.addEventListener('change', () => {
+      this.setBrand(this.brandSelect.value);
+    });
+
+    this.brandPills.querySelectorAll('.brand-pill').forEach((pill) => {
+      pill.addEventListener('click', () => {
+        this.setBrand(pill.dataset.brand);
+      });
+    });
+
+    VANITY_WIDTH_CHIPS.forEach((wc) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = `effect-chip ${wc.id === this.widthFilter ? 'active' : ''}`;
+      chip.dataset.width = wc.id;
+      chip.textContent = wc.label;
+      chip.addEventListener('click', () => {
+        this.widthFilter = wc.id;
+        if (this.brand === 'PRESETS' && wc.id !== 'ALL') {
+          this.setBrand('ALL');
+        }
+        this.visibleLimit = VANITY_PAGE_STEP;
+        this.chipsContainer.querySelectorAll('.effect-chip').forEach((c) => {
+          c.classList.toggle('active', c.dataset.width === this.widthFilter);
+        });
+        this.renderResults();
+      });
+      this.chipsContainer.appendChild(chip);
+    });
+
+    this.searchInput.addEventListener('input', () => {
+      this.query = this.searchInput.value.trim().toLowerCase();
+      this.visibleLimit = VANITY_PAGE_STEP;
+      this.renderResults();
+    });
+
+    this.openSelect.addEventListener('change', () => {
+      this.openingFilter = this.openSelect.value;
+      this.visibleLimit = VANITY_PAGE_STEP;
+      this.renderResults();
+    });
+
+    this.colSelect.addEventListener('change', () => {
+      this.colorFilter = this.colSelect.value;
+      this.visibleLimit = VANITY_PAGE_STEP;
+      this.renderResults();
+    });
+
+    this.resetBtn.addEventListener('click', () => {
+      this.query = '';
+      this.widthFilter = 'ALL';
+      this.openingFilter = 'ALL';
+      this.colorFilter = 'ALL';
+      this.searchInput.value = '';
+      this.chipsContainer.querySelectorAll('.effect-chip').forEach((c) => {
+        c.classList.toggle('active', c.dataset.width === 'ALL');
+      });
+      this.refreshFacetDropdowns();
+      this.visibleLimit = VANITY_PAGE_STEP;
+      this.renderResults();
+    });
+
+    this.loadMoreBtn.addEventListener('click', () => {
+      this.visibleLimit += VANITY_PAGE_STEP;
+      this.renderResults();
+    });
+  }
+
+  updateBanner() {
+    const item = this.byId.get(this.selectedId);
+    if (!item) return;
+
+    if (item.isPreset) {
+      this.bannerThumb.style.backgroundImage = 'none';
+      this.bannerThumb.style.backgroundColor = '#2a313c';
+      this.bannerThumb.textContent = '🪞';
+      this.bannerThumb.style.display = 'grid';
+      this.bannerThumb.style.placeItems = 'center';
+      this.bannerThumb.style.fontSize = '1.35rem';
+      this.bannerTitle.textContent = item.name;
+      this.bannerSub.textContent = item.dims;
+      this.bannerLinks.innerHTML = `<span class="sku-tag">Modello 3D Atelier</span>`;
+      return;
+    }
+
+    const thumbUrl = this.getThumbUrl(item);
+    const linkName = item.brand === 'deghi' ? 'Scheda Deghi' : 'Scheda Iperceramica';
+    this.bannerThumb.textContent = '';
+    this.bannerThumb.style.backgroundColor = '#ffffff';
+    this.bannerThumb.style.backgroundImage = `url('${thumbUrl}')`;
+    this.bannerTitle.textContent = item.title;
+    this.bannerSub.textContent = `L ${item.widthCm} × P ${item.depthCm} cm · ${item.basin}`;
+    this.bannerLinks.innerHTML = `
+      <span class="brand-tag">${item.brandLabel}</span>
+      ${item.price ? `<span class="sku-tag">${item.price}</span>` : ''}
+      <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="tm-ext-link">${linkName} ↗</a>
+    `;
+  }
+
+  getFilteredCatalogItems() {
+    const scoped = this.getBrandScopedCatalogItems();
+    const terms = this.query ? this.query.split(/\s+/).filter(Boolean) : [];
+    return scoped.filter((it) => {
+      if (!this.matchesWidthChip(it.widthCm)) return false;
+      if (this.openingFilter !== 'ALL' && it.opening !== this.openingFilter) return false;
+      if (this.colorFilter !== 'ALL' && it.color !== this.colorFilter) return false;
+      if (terms.length > 0) {
+        const hay = `${it.brandLabel || ''} ${it.series || ''} ${it.title} ${it.fullName} ${it.sku} ${it.color} ${it.opening} ${it.basin} ${it.widthCm}cm`.toLowerCase();
+        for (const t of terms) {
+          if (!hay.includes(t)) return false;
+        }
+      }
+      return true;
+    });
+  }
+
+  getFilteredPresetModels() {
+    if (this.brand !== 'ALL' && this.brand !== 'PRESETS') return [];
+    if (this.widthFilter !== 'ALL' || this.openingFilter !== 'ALL' || this.colorFilter !== 'ALL') {
+      return [];
+    }
+    const terms = this.query ? this.query.split(/\s+/).filter(Boolean) : [];
+    if (terms.length === 0) return this.presetModels;
+    return this.presetModels.filter((m) => {
+      const hay = `${m.name} ${m.dims} ${m.description}`.toLowerCase();
+      return terms.every((t) => hay.includes(t));
+    });
+  }
+
+  renderResults() {
+    this.gridEl.innerHTML = '';
+    const hasFilters =
+      Boolean(this.query) ||
+      this.widthFilter !== 'ALL' ||
+      this.openingFilter !== 'ALL' ||
+      this.colorFilter !== 'ALL';
+    this.resetBtn.style.display = hasFilters ? 'inline-block' : 'none';
+
+    const filteredPresets = this.getFilteredPresetModels();
+    const filteredCat = this.getFilteredCatalogItems();
+    const totalFiltered = filteredPresets.length + filteredCat.length;
+    const totalAll =
+      this.brand === 'PRESETS'
+        ? this.presetModels.length
+        : this.brand === 'ALL'
+        ? this.catalogItems.length + this.presetModels.length
+        : this.getBrandScopedCatalogItems().length;
+
+    this.countText.textContent = `${totalFiltered} di ${totalAll} mobili bagno`;
+
+    if (totalFiltered === 0) {
+      this.loadMoreBtn.style.display = 'none';
+      this.gridEl.innerHTML = `
+        <div class="empty-catalog-msg">
+          Nessun mobile bagno trovato con questi filtri.
+        </div>
+      `;
+      return;
+    }
+
+    const combined = [
+      ...filteredCat.map((item) => ({ kind: 'cat', item })),
+      ...filteredPresets.map((preset) => ({ kind: 'preset', preset })),
+    ];
+
+    const slice = combined.slice(0, this.visibleLimit);
+    for (const entry of slice) {
+      if (entry.kind === 'preset') {
+        const m = entry.preset;
+        const isSelected = this.selectedId === m.id;
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = `swatch-card tm-card vanity-preset-card ${isSelected ? 'active' : ''}`;
+        card.dataset.modelId = m.id;
+        card.innerHTML = `
+          <div class="swatch-thumb tm-thumb-wrap" style="background:linear-gradient(135deg,#252c37,#1a2028);color:#e0b26b;font-size:1.5rem;">
+            🪞
+            <span class="brand-badge">Atelier 3D</span>
+          </div>
+          <div class="swatch-title">${m.name}</div>
+          <div class="swatch-sub">${m.dims}</div>
+        `;
+        card.addEventListener('click', () => {
+          this.setSelection(m.id, { triggerCallback: true });
+        });
+        this.gridEl.appendChild(card);
+      } else {
+        const item = entry.item;
+        const isSelected = this.selectedId === item.id;
+        const thumbUrl = this.getThumbUrl(item);
+        const bId = item.brand || 'iperceramica';
+        const badgeText =
+          bId === 'deghi'
+            ? `Deghi · ${item.widthCm} cm`
+            : `Avivo · ${item.widthCm} cm`;
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = `swatch-card tm-card ${isSelected ? 'active' : ''}`;
+        card.dataset.modelId = item.id;
+        card.dataset.sku = item.sku;
+        card.innerHTML = `
+          <div class="swatch-thumb tm-thumb-wrap">
+            <img src="${thumbUrl}" alt="${item.fullName}" loading="lazy" />
+            <span class="brand-badge brand-${bId}">${badgeText}</span>
+            ${item.price ? `<span class="fmt-pill">${item.price}</span>` : ''}
+          </div>
+          <div class="swatch-title" title="${item.fullName}">${item.title}</div>
+          <div class="swatch-sub">${item.basin}</div>
+        `;
+        card.addEventListener('click', () => {
+          this.setSelection(item.id, { triggerCallback: true });
+        });
+        this.gridEl.appendChild(card);
+      }
+    }
+
+    if (combined.length > this.visibleLimit) {
+      const rem = combined.length - this.visibleLimit;
+      this.loadMoreBtn.style.display = 'block';
+      this.loadMoreBtn.textContent = `Mostra altri mobili (+${Math.min(VANITY_PAGE_STEP, rem)} di ${rem})`;
     } else {
       this.loadMoreBtn.style.display = 'none';
     }

@@ -36,7 +36,7 @@
           <button class="cam-btn" data-preset="sanitary" title="Vista sanitari WC e Bidet a sinistra (3)">
             <span>🚽</span> Sanitari
           </button>
-          <button class="cam-btn" data-preset="shower" id="btn-preset-shower" style="display:none" title="Vista box doccia 80×80 (5)">
+          <button class="cam-btn" data-preset="shower" id="btn-preset-shower" style="display:none" title="Vista box doccia (5)">
             <span>🚿</span> Doccia
           </button>
           <button class="cam-btn" data-preset="orbit" title="Vista spaccato 3D dall'alto (4)">
@@ -56,7 +56,7 @@
           <button class="cam-btn tool-btn" id="btn-wall-paint-mode" title="Seleziona una piastrella e fai doppio clic su una singola parete in 3D per applicarla">
             <span>🖌️</span> Clicca Parete
           </button>
-          <button class="cam-btn tool-btn" id="btn-move-fixtures-mode" title="Attiva per spostare Mobile Bagno o Box Doccia trascinandoli lungo le pareti">
+          <button class="cam-btn tool-btn" id="btn-move-fixtures-mode" title="Attiva per spostare Mobile Bagno, Box Doccia, WC o Bidet trascinandoli lungo le pareti">
             <span>✋</span> Sposta Arredi
           </button>
           <button class="cam-btn photo-btn" id="btn-download-photo" title="Scarica foto PNG della vista 3D attiva">
@@ -88,7 +88,7 @@
         <section class="tab-content active" id="tab-floors">
           <div class="section-header">
             <h2>Gres Porcellanato Pavimento</h2>
-            <span class="badge-dim" id="floor-catalog-badge">3 Cataloghi</span>
+            <span class="badge-dim" id="floor-catalog-badge">9 Cataloghi</span>
           </div>
           <div id="floor-catalog-mount"></div>
         </section>
@@ -97,7 +97,7 @@
         <section class="tab-content" id="tab-walls">
           <div class="section-header">
             <h2>Gres & Rivestimenti Pareti</h2>
-            <span class="badge-dim" id="wall-catalog-badge">3 Cataloghi</span>
+            <span class="badge-dim" id="wall-catalog-badge">9 Cataloghi</span>
           </div>
 
           <!-- Controlli Altezza Rivestimento, Altezza Fissa Doccia & Pittura (sempre visibili!) -->
@@ -209,33 +209,48 @@
           <div class="wall-top-options">
             <div class="accent-toggle-row">
               <div>
-                <div class="accent-toggle-title">✋ Posizione Mobile & Box Doccia</div>
-                <div class="accent-toggle-sub">Attiva "✋ Sposta Arredi" in alto per trascinare mobile o doccia lungo le pareti</div>
+                <div class="accent-toggle-title">✋ Posizione Arredi & Sanitari</div>
+                <div class="accent-toggle-sub">Attiva "✋ Sposta Arredi" in alto per trascinare mobile, doccia, WC o bidet lungo le pareti</div>
               </div>
-              <button type="button" class="pill-btn accent-enable-btn" id="btn-reset-fixtures" title="Ripristina la posizione originale di mobile e doccia">
+              <button type="button" class="pill-btn accent-enable-btn" id="btn-reset-fixtures" title="Ripristina la posizione originale di mobile, doccia, WC e bidet">
                 ↺ Reset
               </button>
             </div>
 
             <div class="accent-toggle-row" style="margin-top:7px">
               <div>
-                <div class="accent-toggle-title">🚿 Box Doccia 80×80</div>
+                <div class="accent-toggle-title" id="shower-presence-title">🚿 Box Doccia 80×80</div>
                 <div class="accent-toggle-sub" id="shower-presence-sub">Ancorato a parete · trascinabile</div>
               </div>
               <button type="button" class="pill-btn accent-enable-btn" id="btn-toggle-shower-box">
                 Presente
               </button>
             </div>
+
+            <div id="shower-size-wrap" style="margin-top:8px">
+              <label class="sub-label">Formato Piatto Doccia (cm)</label>
+              <div class="pill-group" id="shower-size-group">
+                <button type="button" class="pill-btn active" data-shsize="80x80" title="Piatto doccia quadrato 80×80 cm">
+                  80×80
+                </button>
+                <button type="button" class="pill-btn" data-shsize="120x70" title="Piatto doccia rettangolare 70×120 cm (120 lungo la parete × 70 profondità)">
+                  70×120 (Lungo)
+                </button>
+                <button type="button" class="pill-btn" data-shsize="70x120" title="Piatto doccia rettangolare 70×120 cm (70 lungo la parete × 120 profondità)">
+                  70×120 (Ruotato)
+                </button>
+              </div>
+            </div>
           </div>
 
           <div class="section-header">
-            <h2>Modello Mobile Bagno</h2>
+            <h2>Catalogo Mobili Bagno</h2>
             <span class="badge-dim" id="vanity-wall-badge">Destra finestra (155 cm)</span>
           </div>
-          <div class="model-list" id="vanity-models"></div>
+          <div id="vanity-catalog-mount"></div>
 
-          <div class="sub-section">
-            <label class="sub-label">Finitura Mobile</label>
+          <div class="sub-section" id="vanity-custom-finish-section">
+            <label class="sub-label">Finitura Mobile (personalizza colore)</label>
             <div class="color-dots" id="vanity-finishes"></div>
           </div>
 

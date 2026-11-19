@@ -19,3 +19,51 @@
   to = "https://www.armonieceramiche.com/:splat"
   status = 200
   force = true
+
+[[redirects]]
+  from = "/florim-media/*"
+  to = "https://florim-cdn.thron.com/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/mirage-media/*"
+  to = "https://mirage-cdn.thron.com/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/caesar-media/*"
+  to = "https://www.caesar.it/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/fap-media/*"
+  to = "https://www.fapceramiche.com/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/bardelli-media/*"
+  to = "https://cdn.shopify.com/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/serenissima-media/*"
+  to = "https://www.serenissima.re.it/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/iperceramica-media/*"
+  to = "https://cdn.iperceramica.it/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/deghi-media/*"
+  to = "https://assets.deghi.it/:splat"
+  status = 200
+  force = true

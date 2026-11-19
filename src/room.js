@@ -175,10 +175,16 @@ export class BathroomRoom {
     this.doorCurrentAngle = 0.06;
     this.doorTargetAngle = 0.06;
     this.showerGroup = null;
+    this.bidetGroup = null;
+    this.wcGroup = null;
 
     this.showerEnabled = false;
+    this.showerSize = '80x80'; // '80x80' | '120x70' | '70x120'
     this.showerPlacement = { wallId: 'east', s: 2.52 };
     this.vanityPlacement = { wallId: 'east', s: 2.0 };
+    this.vanityTargetSpan = 1.0;
+    this.bidetPlacement = { wallId: 'north', s: 0.56 };
+    this.wcPlacement = { wallId: 'north', s: 1.18 };
 
     this.buildSanitaryAndRadiator();
     this.buildRoomLights();
@@ -189,14 +195,20 @@ export class BathroomRoom {
     if (type === 'first') {
       return {
         showerEnabled: true,
+        showerSize: '80x80',
         showerPlacement: { wallId: 'east', s: 2.52 },
         vanityPlacement: { wallId: 'south', s: 1.35 },
+        bidetPlacement: { wallId: 'north', s: 0.56 },
+        wcPlacement: { wallId: 'north', s: 1.18 },
       };
     }
     return {
       showerEnabled: false,
+      showerSize: '80x80',
       showerPlacement: { wallId: 'south', s: 0.4 },
       vanityPlacement: { wallId: 'east', s: 2.0 },
+      bidetPlacement: { wallId: 'north', s: 0.56 },
+      wcPlacement: { wallId: 'north', s: 1.18 },
     };
   }
 
@@ -234,8 +246,12 @@ export class BathroomRoom {
       this.doorTargetAngle = this.doorCurrentAngle;
       const defs = this.getDefaultFixturesForRoom(type);
       this.showerEnabled = defs.showerEnabled;
+      this.showerSize = defs.showerSize || '80x80';
       this.showerPlacement = { ...defs.showerPlacement };
       this.vanityPlacement = { ...defs.vanityPlacement };
+      this.bidetPlacement = { ...defs.bidetPlacement };
+      this.wcPlacement = { ...defs.wcPlacement };
+      this.updateSanitaryPoses();
       this.rebuildRoomArchitecture();
     }
   }
@@ -440,22 +456,98 @@ export class BathroomRoom {
     });
   }
 
-  getShowerAABB(placement = this.showerPlacement, forceEnable = false) {
+  getShowerDimensions(size = this.showerSize) {
+    if (size === '120x70') {
+      return { along: 1.2, depth: 0.7, label: '70×120' };
+    }
+    if (size === '70x120') {
+      return { along: 0.7, depth: 1.2, label: '70×120' };
+    }
+    return { along: 0.8, depth: 0.8, label: '80×80' };
+  }
+
+  getShowerAABB(placement = this.showerPlacement, forceEnable = false, sizeOverride = this.showerSize) {
     if (!this.showerEnabled && !forceEnable) return null;
     if (!placement) return null;
     const segs = this.getBaseWallSegments();
     const w = segs.find((s) => s.id === placement.wallId) || segs[1];
-    const sClamped = Math.max(0.4, Math.min(w.len - 0.4, placement.s));
-    const cx = w.p1.x + w.ux * sClamped + w.nx * 0.4;
-    const cz = w.p1.z + w.uz * sClamped + w.nz * 0.4;
+    const { along, depth, label } = this.getShowerDimensions(sizeOverride);
+    const halfAlong = along * 0.5;
+    const sClamped =
+      w.len >= along
+        ? Math.max(halfAlong, Math.min(w.len - halfAlong, placement.s))
+        : w.len * 0.5;
+
+    const c1x = w.p1.x + w.ux * (sClamped - halfAlong);
+    const c1z = w.p1.z + w.uz * (sClamped - halfAlong);
+    const c2x = w.p1.x + w.ux * (sClamped + halfAlong) + w.nx * depth;
+    const c2z = w.p1.z + w.uz * (sClamped + halfAlong) + w.nz * depth;
+    const minX = Math.min(c1x, c2x);
+    const maxX = Math.max(c1x, c2x);
+    const minZ = Math.min(c1z, c2z);
+    const maxZ = Math.max(c1z, c2z);
+    const cx = (minX + maxX) * 0.5;
+    const cz = (minZ + maxZ) * 0.5;
+
     return {
-      minX: cx - 0.4,
-      maxX: cx + 0.4,
-      minZ: cz - 0.4,
-      maxZ: cz + 0.4,
+      minX,
+      maxX,
+      minZ,
+      maxZ,
+      wX: maxX - minX,
+      dZ: maxZ - minZ,
+      along,
+      depth,
+      label,
       cx,
       cz,
       wallId: w.id,
+      s: sClamped,
+      wall: w,
+    };
+  }
+
+  getSanitaryPoseAndAABB(kind, placementOverride = null) {
+    const isBidet = kind === 'bidet';
+    const placement = placementOverride || (isBidet ? this.bidetPlacement : this.wcPlacement);
+    const segs = this.getBaseWallSegments();
+    const w = segs.find((s) => s.id === placement?.wallId) || segs[0];
+    const halfW = 0.22; // 44 cm lateral width clearance (includes towel rail / roll holder)
+    const depth = 0.52; // 52 cm projection from wall
+    const sClamped =
+      w.len >= halfW * 2
+        ? Math.max(halfW, Math.min(w.len - halfW, placement?.s ?? w.len * 0.5))
+        : w.len * 0.5;
+
+    const x = w.p1.x + w.ux * sClamped;
+    const z = w.p1.z + w.uz * sClamped;
+    // Local sanitary group was authored at z=0 facing +Z (inward normal (0, 1))
+    const rotY = Math.atan2(w.nx, w.nz);
+
+    const c1x = w.p1.x + w.ux * (sClamped - halfW);
+    const c1z = w.p1.z + w.uz * (sClamped - halfW);
+    const c2x = w.p1.x + w.ux * (sClamped + halfW) + w.nx * depth;
+    const c2z = w.p1.z + w.uz * (sClamped + halfW) + w.nz * depth;
+    const minX = Math.min(c1x, c2x);
+    const maxX = Math.max(c1x, c2x);
+    const minZ = Math.min(c1z, c2z);
+    const maxZ = Math.max(c1z, c2z);
+
+    return {
+      kind,
+      x,
+      z,
+      rotY,
+      cx: (minX + maxX) * 0.5,
+      cz: (minZ + maxZ) * 0.5,
+      minX,
+      maxX,
+      minZ,
+      maxZ,
+      s0: sClamped - halfW,
+      s1: sClamped + halfW,
+      wallId: w.id,
+      wallLabel: w.label,
       s: sClamped,
       wall: w,
     };
@@ -498,10 +590,12 @@ export class BathroomRoom {
       if (op.s1 <= sCenter + 0.01) left = Math.max(left, op.s1);
       if (op.s0 >= sCenter - 0.01) right = Math.min(right, op.s0);
     }
-    if (wall.id === 'north') {
-      // Bidet & WC occupy s = 0.30..1.56 on North wall
-      if (1.56 <= sCenter + 0.01) left = Math.max(left, 1.56);
-      if (0.3 >= sCenter - 0.01) right = Math.min(right, 0.3);
+    for (const kind of ['bidet', 'wc']) {
+      const sp = this.getSanitaryPoseAndAABB(kind);
+      if (sp.wallId === wall.id) {
+        if (sp.s1 <= sCenter + 0.01) left = Math.max(left, sp.s1);
+        if (sp.s0 >= sCenter - 0.01) right = Math.min(right, sp.s0);
+      }
     }
     const shInt = this.getShowerIntervalOnWall(wall, shBox);
     if (shInt) {
@@ -511,13 +605,22 @@ export class BathroomRoom {
     return [left, right];
   }
 
+  setVanityTargetSpan(spanM) {
+    const next = Math.max(0.58, Math.min(1.4, Number(spanM) || 1.0));
+    if (Math.abs(next - this.vanityTargetSpan) > 0.005) {
+      this.vanityTargetSpan = next;
+    }
+  }
+
   getVanityPoseAndAABB(placement = this.vanityPlacement, shBox = this.getShowerAABB()) {
     const segs = this.getBaseWallSegments();
     const w = segs.find((s) => s.id === placement?.wallId) || segs[1];
-    const s = Math.max(0.42, Math.min(w.len - 0.42, placement?.s ?? w.len * 0.5));
+    const targetSpan = this.vanityTargetSpan || 1.0;
+    const halfBound = Math.max(0.32, Math.min(0.45, targetSpan * 0.48));
+    const s = Math.max(halfBound, Math.min(w.len - halfBound, placement?.s ?? w.len * 0.5));
     const [spanL, spanR] = this.getFreeSpanAroundOnWall(w, s, shBox);
-    const availWidth = Math.max(0.8, Math.min(1.6, spanR - spanL));
-    const effSpan = Math.min(1.0, availWidth - 0.02);
+    const availWidth = Math.max(0.6, Math.min(1.6, spanR - spanL));
+    const effSpan = Math.min(targetSpan, availWidth - 0.02);
     const depth = 0.48;
 
     const x = w.p1.x + w.ux * s + w.nx * 0.005;
@@ -960,15 +1063,15 @@ export class BathroomRoom {
     if (!shBox) return;
 
     const shower = new THREE.Group();
-    const { cx, cz, minX, maxX, minZ, maxZ, wall: anchorWall } = shBox;
+    const { cx, cz, minX, maxX, minZ, maxZ, wX, dZ, depth, wall: anchorWall } = shBox;
 
-    // Slim white stone-resin 80x80 shower tray
+    // Slim white stone-resin shower tray (80x80 or 70x120)
     const trayMat = new THREE.MeshStandardMaterial({
       color: 0xf4f3ef,
       roughness: 0.36,
       metalness: 0.02,
     });
-    const tray = new THREE.Mesh(new THREE.BoxGeometry(0.795, 0.036, 0.795), trayMat);
+    const tray = new THREE.Mesh(new THREE.BoxGeometry(wX - 0.005, 0.036, dZ - 0.005), trayMat);
     tray.position.set(cx, 0.018, cz);
     tray.receiveShadow = true;
     shower.add(tray);
@@ -990,7 +1093,7 @@ export class BathroomRoom {
       side: THREE.DoubleSide,
     });
 
-    // Check which of the 4 sides of the 80x80 box touch a room masonry wall
+    // Check which of the 4 sides of the shower box touch a room masonry wall
     const segs = this.getBaseWallSegments();
     const sideTouchesWall = (mx, mz) => {
       for (const seg of segs) {
@@ -1011,12 +1114,12 @@ export class BathroomRoom {
     const wallWest = sideTouchesWall(minX, cz);
 
     const addGlassSide = (isHoriz, xPos, zPos) => {
-      const gW = isHoriz ? 0.79 : 0.01;
-      const gD = isHoriz ? 0.01 : 0.79;
+      const gW = isHoriz ? wX - 0.01 : 0.01;
+      const gD = isHoriz ? 0.01 : dZ - 0.01;
       const panel = new THREE.Mesh(new THREE.BoxGeometry(gW, 2.0, gD), glassMat);
       panel.position.set(xPos, 1.036, zPos);
       const topBar = new THREE.Mesh(
-        new THREE.BoxGeometry(isHoriz ? 0.795 : 0.022, 0.022, isHoriz ? 0.022 : 0.795),
+        new THREE.BoxGeometry(isHoriz ? wX - 0.005 : 0.022, 0.022, isHoriz ? 0.022 : dZ - 0.005),
         this.metalMaterial
       );
       topBar.position.set(xPos, 2.036, zPos);
@@ -1044,8 +1147,9 @@ export class BathroomRoom {
     }
 
     // Door handle on primary open glass face opposite the anchored wall
-    const doorFaceX = cx + anchorWall.nx * 0.405 + anchorWall.ux * 0.16;
-    const doorFaceZ = cz + anchorWall.nz * 0.405 + anchorWall.uz * 0.16;
+    const halfDepth = depth * 0.5;
+    const doorFaceX = cx + anchorWall.nx * (halfDepth + 0.005) + anchorWall.ux * 0.16;
+    const doorFaceZ = cz + anchorWall.nz * (halfDepth + 0.005) + anchorWall.uz * 0.16;
     const doorHandle = new THREE.Mesh(
       new THREE.CylinderGeometry(0.009, 0.009, 0.34, 12),
       this.metalMaterial
@@ -1055,8 +1159,8 @@ export class BathroomRoom {
 
     // Thermostatic shower column + rainfall showerhead mounted on the anchored wall facing inward
     const colGroup = new THREE.Group();
-    const backWallX = cx - anchorWall.nx * 0.4;
-    const backWallZ = cz - anchorWall.nz * 0.4;
+    const backWallX = cx - anchorWall.nx * halfDepth;
+    const backWallZ = cz - anchorWall.nz * halfDepth;
     colGroup.position.set(backWallX, 0, backWallZ);
     colGroup.rotation.y = Math.atan2(anchorWall.nx, anchorWall.nz);
 
@@ -1115,24 +1219,20 @@ export class BathroomRoom {
   }
 
   buildSanitaryAndRadiator() {
-    const group = new THREE.Group();
+    // 1. Movable Bidet unit (Suspended Bidet + Heated Towel Rail / Scaldasalviette above it)
+    this.bidetGroup = new THREE.Group();
+    const bidetBowl = this.createSuspendedBowl(true);
+    bidetBowl.rotation.y = Math.PI / 2;
+    this.bidetGroup.add(bidetBowl);
 
-    // Bidet (left) & WC (right) along the 190 cm North wall (z = 0.00, facing +Z South), to the left of the East window
-    // 1. Suspended Bidet at x = 0.56, z = 0.00
-    const bidet = this.createSuspendedBowl(true);
-    bidet.rotation.y = Math.PI / 2;
-    bidet.position.set(0.56, 0, 0.0);
-    group.add(bidet);
-
-    // 2. Heated Towel Rail (Scaldasalviette) mounted on the North wall directly ABOVE the Bidet (x = 0.56)
-    const radGroup = new THREE.Group();
+    this.bidetWallMounted = new THREE.Group();
     for (const dx of [-0.22, 0.22]) {
       const rail = new THREE.Mesh(
         new THREE.CylinderGeometry(0.015, 0.015, 1.12, 12),
         this.metalMaterial
       );
-      rail.position.set(0.56 + dx, 1.44, 0.055);
-      radGroup.add(rail);
+      rail.position.set(dx, 1.44, 0.055);
+      this.bidetWallMounted.add(rail);
 
       for (const by of [0.98, 1.9]) {
         const bracket = new THREE.Mesh(
@@ -1140,8 +1240,8 @@ export class BathroomRoom {
           this.metalMaterial
         );
         bracket.rotation.x = Math.PI / 2;
-        bracket.position.set(0.56 + dx, by, 0.0275);
-        radGroup.add(bracket);
+        bracket.position.set(dx, by, 0.0275);
+        this.bidetWallMounted.add(bracket);
       }
     }
 
@@ -1152,8 +1252,8 @@ export class BathroomRoom {
         this.metalMaterial
       );
       rung.rotation.z = Math.PI / 2;
-      rung.position.set(0.56, 0.92 + i * 0.08, 0.055);
-      radGroup.add(rung);
+      rung.position.set(0, 0.92 + i * 0.08, 0.055);
+      this.bidetWallMounted.add(rung);
     }
 
     const towelMat = new THREE.MeshStandardMaterial({
@@ -1162,36 +1262,59 @@ export class BathroomRoom {
       metalness: 0.0,
     });
     const towel = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.38, 0.045), towelMat);
-    towel.position.set(0.56, 1.28, 0.075);
-    radGroup.add(towel);
-    const northMounted = new THREE.Group();
-    northMounted.add(radGroup);
+    towel.position.set(0, 1.28, 0.075);
+    this.bidetWallMounted.add(towel);
+    this.bidetGroup.add(this.bidetWallMounted);
 
-    // 3. Suspended WC at x = 1.18, z = 0.00
-    const wc = this.createSuspendedBowl(false);
-    wc.rotation.y = Math.PI / 2;
-    wc.position.set(1.18, 0, 0.0);
-    group.add(wc);
+    this.bidetGroup.traverse((obj) => {
+      if (obj.isMesh) {
+        obj.userData.fixtureType = 'bidet';
+      }
+    });
 
-    // Dual-flush plate on North wall above WC
+    // 2. Movable WC unit (Suspended WC + Dual-flush plate + Toilet roll holder)
+    this.wcGroup = new THREE.Group();
+    const wcBowl = this.createSuspendedBowl(false);
+    wcBowl.rotation.y = Math.PI / 2;
+    this.wcGroup.add(wcBowl);
+
+    this.wcWallMounted = new THREE.Group();
     const plate = new THREE.Mesh(new THREE.BoxGeometry(0.23, 0.15, 0.014), this.metalMaterial);
-    plate.position.set(1.18, 1.0, 0.008);
-    northMounted.add(plate);
+    plate.position.set(0, 1.0, 0.008);
+    this.wcWallMounted.add(plate);
 
-    // Toilet roll holder beside WC
     const rollHolder = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.018, 0.08), this.metalMaterial);
-    rollHolder.position.set(1.48, 0.66, 0.04);
+    rollHolder.position.set(0.26, 0.66, 0.04);
     const paperRoll = new THREE.Mesh(
       new THREE.CylinderGeometry(0.052, 0.052, 0.11, 18),
       new THREE.MeshStandardMaterial({ color: 0xfaf9f5, roughness: 0.85 })
     );
     paperRoll.rotation.z = Math.PI / 2;
-    paperRoll.position.set(1.48, 0.62, 0.055);
-    northMounted.add(rollHolder, paperRoll);
+    paperRoll.position.set(0.26, 0.62, 0.055);
+    this.wcWallMounted.add(rollHolder, paperRoll);
+    this.wcGroup.add(this.wcWallMounted);
 
-    group.add(northMounted);
-    this.northWallMountedGroup = northMounted;
-    this.root.add(group);
+    this.wcGroup.traverse((obj) => {
+      if (obj.isMesh) {
+        obj.userData.fixtureType = 'wc';
+      }
+    });
+
+    this.root.add(this.bidetGroup, this.wcGroup);
+    this.updateSanitaryPoses();
+  }
+
+  updateSanitaryPoses() {
+    if (this.bidetGroup) {
+      const bp = this.getSanitaryPoseAndAABB('bidet');
+      this.bidetGroup.position.set(bp.x, 0, bp.z);
+      this.bidetGroup.rotation.y = bp.rotY;
+    }
+    if (this.wcGroup) {
+      const wp = this.getSanitaryPoseAndAABB('wc');
+      this.wcGroup.position.set(wp.x, 0, wp.z);
+      this.wcGroup.rotation.y = wp.rotY;
+    }
   }
 
   createSuspendedBowl(isBidet) {
@@ -1458,7 +1581,7 @@ export class BathroomRoom {
       }
       this.fixtureOutlineMesh.position.set(sh.cx, 0.042, sh.cz);
       this.fixtureOutlineMesh.rotation.set(-Math.PI / 2, 0, Math.PI / 4);
-      this.fixtureOutlineMesh.scale.set(1.16, 1.16, 1);
+      this.fixtureOutlineMesh.scale.set(sh.wX * 1.45, sh.dZ * 1.45, 1);
       this.fixtureOutlineMesh.visible = true;
     } else if (fixtureType === 'vanity') {
       const v = this.getVanityPoseAndAABB();
@@ -1468,6 +1591,14 @@ export class BathroomRoom {
       this.fixtureOutlineMesh.rotation.set(-Math.PI / 2, 0, Math.PI / 4);
       const sx = (v.maxX - v.minX) * 1.42;
       const sz = (v.maxZ - v.minZ) * 1.42;
+      this.fixtureOutlineMesh.scale.set(sx, sz, 1);
+      this.fixtureOutlineMesh.visible = true;
+    } else if (fixtureType === 'bidet' || fixtureType === 'wc') {
+      const sp = this.getSanitaryPoseAndAABB(fixtureType);
+      this.fixtureOutlineMesh.position.set(sp.cx, 0.014, sp.cz);
+      this.fixtureOutlineMesh.rotation.set(-Math.PI / 2, 0, Math.PI / 4);
+      const sx = (sp.maxX - sp.minX) * 1.45;
+      const sz = (sp.maxZ - sp.minZ) * 1.45;
       this.fixtureOutlineMesh.scale.set(sx, sz, 1);
       this.fixtureOutlineMesh.visible = true;
     }
@@ -1483,27 +1614,37 @@ export class BathroomRoom {
     );
   }
 
-  getForbiddenFixtureBoxes() {
-    // North wall Bidet & WC + West wall Door clear zone + East Window zone
+  getForbiddenFixtureBoxes({ excludeKind = null, allowWindow = false } = {}) {
     const isFirst = this.roomType === 'first';
-    return [
-      // Bidet & WC along North wall
-      { minX: 0.3, maxX: 1.54, minZ: -0.05, maxZ: 0.5, kind: 'sanitary' },
+    const boxes = [
       // West doorway clear ingress
       isFirst
         ? { minX: -0.05, maxX: 0.55, minZ: 0.58, maxZ: 1.42, kind: 'door' }
         : { minX: 0.1, maxX: 0.65, minZ: 0.9, maxZ: 1.74, kind: 'door' },
-      // East 100x100 window at 80cm from floor (keep clear of 85cm vanity/mirror & 200cm shower!)
-      isFirst
-        ? { minX: 1.42, maxX: 1.95, minZ: 0.18, maxZ: 1.18, kind: 'window' }
-        : { minX: 1.42, maxX: 1.95, minZ: 0.25, maxZ: 1.25, kind: 'window' },
     ];
+
+    if (!allowWindow) {
+      // East 100x100 window at 80cm from floor (keep clear of 85cm vanity/mirror & 200cm shower!)
+      boxes.push(
+        isFirst
+          ? { minX: 1.42, maxX: 1.95, minZ: 0.18, maxZ: 1.18, kind: 'window' }
+          : { minX: 1.42, maxX: 1.95, minZ: 0.25, maxZ: 1.25, kind: 'window' }
+      );
+    }
+
+    if (excludeKind !== 'bidet') {
+      boxes.push({ ...this.getSanitaryPoseAndAABB('bidet'), kind: 'bidet' });
+    }
+    if (excludeKind !== 'wc') {
+      boxes.push({ ...this.getSanitaryPoseAndAABB('wc'), kind: 'wc' });
+    }
+    return boxes;
   }
 
   findNearestVanityPlacement(wx, wz) {
     const segs = this.getBaseWallSegments().filter((s) => s.len >= 0.85);
     const shBox = this.getShowerAABB();
-    const forbidden = this.getForbiddenFixtureBoxes();
+    const forbidden = this.getForbiddenFixtureBoxes({ excludeKind: 'vanity' });
 
     let best = null;
     let bestDistSq = Infinity;
@@ -1531,28 +1672,30 @@ export class BathroomRoom {
     return best || this.vanityPlacement;
   }
 
-  findNearestShowerPlacement(wx, wz) {
-    const segs = this.getBaseWallSegments().filter((s) => s.len >= 0.8);
+  findNearestShowerPlacement(wx, wz, sizeOverride = this.showerSize) {
+    const { along } = this.getShowerDimensions(sizeOverride);
+    const halfAlong = along * 0.5;
+    const segs = this.getBaseWallSegments().filter((s) => s.len >= along - 0.005);
     const vanInfo = this.getVanityPoseAndAABB(this.vanityPlacement, null);
-    const forbidden = this.getForbiddenFixtureBoxes();
+    const forbidden = this.getForbiddenFixtureBoxes({ excludeKind: 'shower' });
 
     let best = null;
     let bestDistSq = Infinity;
 
     for (const seg of segs) {
-      const samples = new Set([0.4, seg.len - 0.4]);
-      for (let s = 0.4; s <= seg.len - 0.4 + 0.001; s += 0.02) {
-        samples.add(Math.min(seg.len - 0.4, s));
+      const samples = new Set([halfAlong, seg.len - halfAlong]);
+      for (let s = halfAlong; s <= seg.len - halfAlong + 0.001; s += 0.02) {
+        samples.add(Math.min(seg.len - halfAlong, s));
       }
 
       for (const rawS of samples) {
         // Magnetic corner snap when within 10 cm of either end of the wall
         let s = rawS;
-        if (Math.abs(s - 0.4) < 0.1) s = 0.4;
-        else if (Math.abs(s - (seg.len - 0.4)) < 0.1) s = seg.len - 0.4;
+        if (Math.abs(s - halfAlong) < 0.1) s = halfAlong;
+        else if (Math.abs(s - (seg.len - halfAlong)) < 0.1) s = seg.len - halfAlong;
 
         const cand = { wallId: seg.id, s };
-        const box = this.getShowerAABB(cand, true);
+        const box = this.getShowerAABB(cand, true, sizeOverride);
         if (!this.isBoxInsideRoom(box, 0.025)) continue;
         if (this.boxesOverlap(box, vanInfo, 0.015)) continue;
         if (forbidden.some((fb) => this.boxesOverlap(box, fb, 0.01))) continue;
@@ -1568,12 +1711,60 @@ export class BathroomRoom {
     return best || this.showerPlacement;
   }
 
-  setFixturesConfig({ showerEnabled, showerPlacement, vanityPlacement }) {
+  findNearestSanitaryPlacement(kind, wx, wz) {
+    const halfW = 0.22;
+    const segs = this.getBaseWallSegments().filter((s) => s.len >= 0.48);
+    const shBox = this.getShowerAABB();
+    const vanInfo = this.getVanityPoseAndAABB(this.vanityPlacement, shBox);
+    // Bidet involves the 190cm scaldasalviette on the wall above it, so keep it clear of the window;
+    // low WC (height 42cm, flush plate at 100cm) can also stay clear of window or fit along walls cleanly.
+    const forbidden = this.getForbiddenFixtureBoxes({
+      excludeKind: kind,
+      allowWindow: false,
+    });
+
+    let best = null;
+    let bestDistSq = Infinity;
+
+    for (const seg of segs) {
+      for (let s = halfW + 0.02; s <= seg.len - halfW - 0.02 + 0.001; s += 0.02) {
+        const cand = { wallId: seg.id, s: Math.min(seg.len - halfW - 0.02, s) };
+        const box = this.getSanitaryPoseAndAABB(kind, cand);
+        if (!this.isBoxInsideRoom(box, 0.02)) continue;
+        if (shBox && this.boxesOverlap(box, shBox, 0.015)) continue;
+        if (vanInfo && this.boxesOverlap(box, vanInfo, 0.015)) continue;
+        if (forbidden.some((fb) => this.boxesOverlap(box, fb, 0.015))) continue;
+
+        const dSq = (box.cx - wx) ** 2 + (box.cz - wz) ** 2;
+        if (dSq < bestDistSq) {
+          bestDistSq = dSq;
+          best = { wallId: seg.id, s: Math.round(cand.s * 1000) / 1000 };
+        }
+      }
+    }
+
+    return best || (kind === 'bidet' ? this.bidetPlacement : this.wcPlacement);
+  }
+
+  setFixturesConfig({
+    showerEnabled,
+    showerSize,
+    showerPlacement,
+    vanityPlacement,
+    bidetPlacement,
+    wcPlacement,
+  }) {
     let needsWallRebuild = false;
     let needsShowerRebuild = false;
+    let needsSanitaryUpdate = false;
 
     if (typeof showerEnabled === 'boolean' && showerEnabled !== this.showerEnabled) {
       this.showerEnabled = showerEnabled;
+      needsWallRebuild = true;
+      needsShowerRebuild = true;
+    }
+    if (showerSize && showerSize !== this.showerSize) {
+      this.showerSize = showerSize;
       needsWallRebuild = true;
       needsShowerRebuild = true;
     }
@@ -1594,7 +1785,26 @@ export class BathroomRoom {
       this.vanityPlacement = { ...vanityPlacement };
       needsWallRebuild = true;
     }
+    if (
+      bidetPlacement &&
+      (bidetPlacement.wallId !== this.bidetPlacement.wallId ||
+        Math.abs(bidetPlacement.s - this.bidetPlacement.s) > 0.001)
+    ) {
+      this.bidetPlacement = { ...bidetPlacement };
+      needsSanitaryUpdate = true;
+      needsWallRebuild = true;
+    }
+    if (
+      wcPlacement &&
+      (wcPlacement.wallId !== this.wcPlacement.wallId ||
+        Math.abs(wcPlacement.s - this.wcPlacement.s) > 0.001)
+    ) {
+      this.wcPlacement = { ...wcPlacement };
+      needsSanitaryUpdate = true;
+      needsWallRebuild = true;
+    }
 
+    if (needsSanitaryUpdate) this.updateSanitaryPoses();
     if (needsWallRebuild) this.rebuildWalls();
     if (needsShowerRebuild) this.rebuildShower();
   }
@@ -1650,7 +1860,8 @@ export class BathroomRoom {
       }
       if (this.windowGroup) this.windowGroup.visible = true;
       if (this.doorFrameGroup) this.doorFrameGroup.visible = true;
-      if (this.northWallMountedGroup) this.northWallMountedGroup.visible = true;
+      if (this.bidetWallMounted) this.bidetWallMounted.visible = true;
+      if (this.wcWallMounted) this.wcWallMounted.visible = true;
     }
   }
 
@@ -1670,6 +1881,7 @@ export class BathroomRoom {
       const showNorth = camera.position.z >= 0.25;
       const showSouth = camera.position.z <= maxZ - 0.25;
 
+      const wallVisibleMap = new Map();
       for (const w of this.wallGroups) {
         let visible = true;
         if (westIds.has(w.id)) visible = showWest;
@@ -1677,14 +1889,20 @@ export class BathroomRoom {
         else if (w.id === 'north') visible = showNorth;
         else if (w.id === 'south') visible = showSouth;
         w.group.visible = visible;
+        wallVisibleMap.set(w.id, visible);
       }
       if (this.windowGroup) this.windowGroup.visible = showEast;
       if (this.doorFrameGroup) this.doorFrameGroup.visible = showWest;
-      if (this.northWallMountedGroup) this.northWallMountedGroup.visible = showNorth;
+      if (this.bidetWallMounted) {
+        this.bidetWallMounted.visible = wallVisibleMap.get(this.bidetPlacement.wallId) ?? true;
+      }
+      if (this.wcWallMounted) {
+        this.wcWallMounted.visible = wallVisibleMap.get(this.wcPlacement.wallId) ?? true;
+      }
     }
   }
 
-  // Exact collision clamp for First-Person walking inside either bathroom (tracks moved shower & vanity!)
+  // Exact collision clamp for First-Person walking inside either bathroom (tracks moved shower, vanity, WC & bidet!)
   clampWalkPosition(x, z, margin = 0.24) {
     let cx = x;
     let cz = z;
@@ -1702,11 +1920,6 @@ export class BathroomRoom {
         minX = 0.14 + margin;
       }
       cx = Math.max(minX, cx);
-    }
-
-    // North-wall Bidet & WC
-    if (cz < 0.5 + margin * 0.65 && cx > 0.28 && cx < 1.54) {
-      cz = Math.max(cz, 0.5 + margin * 0.65);
     }
 
     const pushOutOfBox = (box, pad) => {
@@ -1728,6 +1941,8 @@ export class BathroomRoom {
       }
     };
 
+    pushOutOfBox(this.getSanitaryPoseAndAABB('bidet'), margin * 0.5);
+    pushOutOfBox(this.getSanitaryPoseAndAABB('wc'), margin * 0.5);
     pushOutOfBox(this.getShowerAABB(), margin * 0.7);
     pushOutOfBox(this.getVanityPoseAndAABB(), margin * 0.55);
 

@@ -641,22 +641,31 @@ function rotateCanvas90(srcCanvas) {
   return out;
 }
 
+const BRAND_MEDIA_PREFIX = {
+  tecnomat: '/tecnomat-media',
+  baucer: '/baucer-media',
+  armonie: '/armonie-media',
+  florim: '/florim-media',
+  mirage: '/mirage-media',
+  caesar: '/caesar-media',
+  fap: '/fap-media',
+  bardelli: '/bardelli-media',
+  serenissima: '/serenissima-media',
+};
+
 export function getCatalogItemKey(item) {
   const brand = item.brand || 'tecnomat';
-  if (brand === 'baucer') return `baucer:${item.sku}`;
-  if (brand === 'armonie') return `armonie:${item.sku}`;
-  return `tm:${item.sku}`;
+  if (brand === 'tecnomat') return `tm:${item.sku}`;
+  return `${brand}:${item.sku}`;
 }
 
 export function getCatalogItemThumbUrl(item) {
   const brand = item.brand || 'tecnomat';
-  if (brand === 'baucer') {
-    return `/baucer-media/${item.thumbPic || item.pic}`;
+  if (brand === 'tecnomat') {
+    return `/tecnomat-media/${item.pic}?width=220&quality=80`;
   }
-  if (brand === 'armonie') {
-    return `/armonie-media/${item.thumbPic || item.pic}`;
-  }
-  return `/tecnomat-media/${item.pic}?width=220&quality=80`;
+  const prefix = BRAND_MEDIA_PREFIX[brand] || `/${brand}-media`;
+  return `${prefix}/${item.thumbPic || item.pic}`;
 }
 
 export class TextureLibrary {
@@ -765,14 +774,10 @@ export class TextureLibrary {
       });
 
     let loadedImgs = [];
-    if (brand === 'baucer') {
-      const primaryUrl = `/baucer-media/${item.pic}`;
-      const fallbackUrl = item.thumbPic ? `/baucer-media/${item.thumbPic}` : primaryUrl;
-      const img = await loadUrl(primaryUrl).catch(() => loadUrl(fallbackUrl));
-      loadedImgs = [img];
-    } else if (brand === 'armonie') {
-      const primaryUrl = `/armonie-media/${item.pic}`;
-      const fallbackUrl = item.thumbPic ? `/armonie-media/${item.thumbPic}` : primaryUrl;
+    if (brand !== 'tecnomat') {
+      const prefix = BRAND_MEDIA_PREFIX[brand] || `/${brand}-media`;
+      const primaryUrl = `${prefix}/${item.pic}`;
+      const fallbackUrl = item.thumbPic ? `${prefix}/${item.thumbPic}` : primaryUrl;
       const img = await loadUrl(primaryUrl).catch(() => loadUrl(fallbackUrl));
       loadedImgs = [img];
     } else {

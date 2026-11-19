@@ -924,6 +924,39 @@ body,
   background: rgba(67, 56, 202, 0.88);
 }
 
+.brand-badge.brand-florim {
+  background: rgba(30, 41, 59, 0.92);
+  border: 1px solid rgba(224, 178, 107, 0.45);
+}
+
+.brand-badge.brand-mirage {
+  background: rgba(14, 116, 144, 0.9);
+}
+
+.brand-badge.brand-caesar {
+  background: rgba(153, 27, 27, 0.9);
+}
+
+.brand-badge.brand-fap {
+  background: rgba(134, 25, 143, 0.88);
+}
+
+.brand-badge.brand-bardelli {
+  background: rgba(5, 150, 105, 0.9);
+}
+
+.brand-badge.brand-serenissima {
+  background: rgba(124, 45, 18, 0.9);
+}
+
+.brand-badge.brand-iperceramica {
+  background: rgba(2, 132, 199, 0.92);
+}
+
+.brand-badge.brand-deghi {
+  background: rgba(217, 119, 6, 0.92);
+}
+
 .tm-ext-link {
   font-size: 0.66rem;
   font-weight: 600;
