@@ -145,6 +145,16 @@ body,
 .saved-indicator {
   color: #6ee7b7;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saved-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
 }
 
 .copy-room-btn {
@@ -158,8 +168,14 @@ body,
   cursor: pointer;
 }
 
-.copy-room-btn:hover {
+.copy-room-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.18);
+}
+
+.cam-btn:disabled,
+.copy-room-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
 }
 
 .toast-msg {
@@ -288,9 +304,9 @@ body,
 
 .panel-tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
-  padding: 8px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  padding: 7px;
   background: rgba(0, 0, 0, 0.22);
   border-bottom: 1px solid var(--border-subtle);
 }
@@ -299,12 +315,13 @@ body,
   background: transparent;
   border: none;
   color: var(--text-muted);
-  font-size: 0.8rem;
-  font-weight: 600;
-  padding: 8px 6px;
-  border-radius: 9px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 7px 4px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
 .tab-btn:hover {
@@ -314,6 +331,101 @@ body,
 .tab-btn.active {
   background: var(--accent);
   color: #171a1f;
+}
+
+.shower-tray-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shower-tray-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.shower-tray-card:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.shower-tray-card.active {
+  background: rgba(224, 178, 107, 0.16);
+  border-color: var(--accent);
+}
+
+.tray-preview-box {
+  width: 54px;
+  height: 54px;
+  border-radius: 8px;
+  background: rgba(15, 23, 32, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tray-shape {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #f5f4f0 0%, #dcd8ce 100%);
+  border: 2px solid #38bdf8;
+  border-radius: 3px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.tray-80x80 {
+  width: 30px;
+  height: 30px;
+}
+
+.tray-120x70 {
+  width: 42px;
+  height: 25px;
+}
+
+.tray-70x120 {
+  width: 25px;
+  height: 42px;
+}
+
+.tray-drain {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #64748b;
+  border: 1px solid #334155;
+}
+
+.tray-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tray-card-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.shower-tray-card.active .tray-card-title {
+  color: var(--accent-strong);
+}
+
+.tray-card-sub {
+  font-size: 0.69rem;
+  color: var(--text-muted);
 }
 
 .tab-content {

@@ -180,6 +180,11 @@ export class BathroomRoom {
 
     this.showerEnabled = false;
     this.showerSize = '80x80'; // '80x80' | '120x70' | '70x120'
+    this.showerTrayMaterial = new THREE.MeshStandardMaterial({
+      color: 0xf4f3ef,
+      roughness: 0.36,
+      metalness: 0.02,
+    });
     this.showerPlacement = { wallId: 'east', s: 2.52 };
     this.vanityPlacement = { wallId: 'east', s: 2.0 };
     this.vanityTargetSpan = 1.0;
@@ -368,7 +373,7 @@ export class BathroomRoom {
               label: 'Parete Est (Finestra)',
               p1: { x: 1.9, z: 0.0 },
               p2: { x: 1.9, z: 2.92 },
-              openings: [{ s0: 0.18, s1: 1.18, y0: 0.8, y1: 1.8, kind: 'window' }],
+              openings: [{ s0: 0.18, s1: 1.33, y0: 0.8, y1: 1.8, kind: 'window' }],
             },
             {
               id: 'south',
@@ -398,7 +403,7 @@ export class BathroomRoom {
               label: 'Parete Est (Finestra)',
               p1: { x: 1.9, z: 0.0 },
               p2: { x: 1.9, z: 2.8 },
-              openings: [{ s0: 0.25, s1: 1.25, y0: 0.8, y1: 1.8, kind: 'window' }],
+              openings: [{ s0: 0.25, s1: 1.4, y0: 0.8, y1: 1.8, kind: 'window' }],
             },
             {
               id: 'south',
@@ -512,8 +517,8 @@ export class BathroomRoom {
     const placement = placementOverride || (isBidet ? this.bidetPlacement : this.wcPlacement);
     const segs = this.getBaseWallSegments();
     const w = segs.find((s) => s.id === placement?.wallId) || segs[0];
-    const halfW = 0.22; // 44 cm lateral width clearance (includes towel rail / roll holder)
-    const depth = 0.52; // 52 cm projection from wall
+    const halfW = 0.2; // 40 cm lateral width footprint
+    const depth = 0.5; // 50 cm projection from wall
     const sClamped =
       w.len >= halfW * 2
         ? Math.max(halfW, Math.min(w.len - halfW, placement?.s ?? w.len * 0.5))
@@ -912,7 +917,7 @@ export class BathroomRoom {
   }
 
   buildWindowAndExterior() {
-    // Window 100x100 on East wall at 80 cm from floor (x = 1.90, z = 0.25..1.25, y = 0.80..1.80) with brown wood frames
+    // Window 115x100 on East wall at 80 cm from floor (x = 1.90, width = 1.15m, y = 0.80..1.80) with brown wood frames
     this.windowGroup = new THREE.Group();
     const revealMat = new THREE.MeshStandardMaterial({
       color: 0xf2f0eb,
@@ -939,21 +944,22 @@ export class BathroomRoom {
       transmission: 0.65,
     });
 
+    const winW = 1.15;    // 115 cm width
     const depth = 0.16;
     const xCenter = 1.9 + depth * 0.5;
     const zStart = this.roomType === 'first' ? 0.18 : 0.25;
-    const zEnd = zStart + 1.0;
+    const zEnd = zStart + winW;
     const zCenter = (zStart + zEnd) * 0.5;
     const yBottom = 0.8;  // 80 cm from floor
     const yTop = 1.8;     // 80 + 100 = 180 cm
     const yCenter = 1.3;  // midpoint of 0.80..1.80
 
     // Window masonry reveals + marble sill at 80 cm
-    const sill = new THREE.Mesh(new THREE.BoxGeometry(depth + 0.05, 0.03, 1.04), sillMat);
+    const sill = new THREE.Mesh(new THREE.BoxGeometry(depth + 0.05, 0.03, winW + 0.04), sillMat);
     sill.position.set(xCenter - 0.015, yBottom + 0.005, zCenter);
     this.windowGroup.add(sill);
 
-    const topReveal = new THREE.Mesh(new THREE.BoxGeometry(depth, 0.02, 1.0), revealMat);
+    const topReveal = new THREE.Mesh(new THREE.BoxGeometry(depth, 0.02, winW), revealMat);
     topReveal.position.set(xCenter, yTop - 0.01, zCenter);
     this.windowGroup.add(topReveal);
 
@@ -964,9 +970,9 @@ export class BathroomRoom {
     }
 
     // Brown double-casement window frame (top, bottom, left, right stiles + center mullion)
-    const outerTop = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.055, 0.98), frameMat);
+    const outerTop = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.055, winW - 0.02), frameMat);
     outerTop.position.set(1.96, yTop - 0.038, zCenter);
-    const outerBot = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.055, 0.98), frameMat);
+    const outerBot = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.055, winW - 0.02), frameMat);
     outerBot.position.set(1.96, yBottom + 0.042, zCenter);
     const outerLeft = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.96, 0.055), frameMat);
     outerLeft.position.set(1.96, yCenter, zStart + 0.045);
@@ -977,7 +983,7 @@ export class BathroomRoom {
     this.windowGroup.add(outerTop, outerBot, outerLeft, outerRight, outerMid);
 
     // Frosted/clear bathroom double-pane glass
-    const pane = new THREE.Mesh(new THREE.PlaneGeometry(0.88, 0.86), glassMat);
+    const pane = new THREE.Mesh(new THREE.PlaneGeometry(winW - 0.12, 0.86), glassMat);
     pane.rotation.y = -Math.PI / 2;
     pane.position.set(1.965, yCenter, zCenter);
     this.windowGroup.add(pane);
@@ -1065,13 +1071,11 @@ export class BathroomRoom {
     const shower = new THREE.Group();
     const { cx, cz, minX, maxX, minZ, maxZ, wX, dZ, depth, wall: anchorWall } = shBox;
 
-    // Slim white stone-resin shower tray (80x80 or 70x120)
-    const trayMat = new THREE.MeshStandardMaterial({
-      color: 0xf4f3ef,
-      roughness: 0.36,
-      metalness: 0.02,
-    });
-    const tray = new THREE.Mesh(new THREE.BoxGeometry(wX - 0.005, 0.036, dZ - 0.005), trayMat);
+    // Slim stone-resin shower tray (80x80 or 70x120)
+    const tray = new THREE.Mesh(
+      new THREE.BoxGeometry(wX - 0.005, 0.036, dZ - 0.005),
+      this.showerTrayMaterial
+    );
     tray.position.set(cx, 0.018, cz);
     tray.receiveShadow = true;
     shower.add(tray);
@@ -1266,6 +1270,17 @@ export class BathroomRoom {
     this.bidetWallMounted.add(towel);
     this.bidetGroup.add(this.bidetWallMounted);
 
+    // Invisible volume collider so clicking anywhere on or above the bidet easily grabs it
+    const hitBoxMat = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      colorWrite: false,
+    });
+    const bidetHitBox = new THREE.Mesh(new THREE.BoxGeometry(0.46, 1.45, 0.56), hitBoxMat);
+    bidetHitBox.position.set(0, 0.72, 0.26);
+    this.bidetGroup.add(bidetHitBox);
+
     this.bidetGroup.traverse((obj) => {
       if (obj.isMesh) {
         obj.userData.fixtureType = 'bidet';
@@ -1293,6 +1308,11 @@ export class BathroomRoom {
     paperRoll.position.set(0.26, 0.62, 0.055);
     this.wcWallMounted.add(rollHolder, paperRoll);
     this.wcGroup.add(this.wcWallMounted);
+
+    // Invisible volume collider so clicking anywhere on or above the WC bowl/flush plate grabs it reliably
+    const wcHitBox = new THREE.Mesh(new THREE.BoxGeometry(0.46, 1.18, 0.56), hitBoxMat);
+    wcHitBox.position.set(0, 0.59, 0.26);
+    this.wcGroup.add(wcHitBox);
 
     this.wcGroup.traverse((obj) => {
       if (obj.isMesh) {
@@ -1624,11 +1644,11 @@ export class BathroomRoom {
     ];
 
     if (!allowWindow) {
-      // East 100x100 window at 80cm from floor (keep clear of 85cm vanity/mirror & 200cm shower!)
+      // East 115x100 window at 80cm from floor (keep clear of 85cm vanity/mirror & 200cm shower!)
       boxes.push(
         isFirst
-          ? { minX: 1.42, maxX: 1.95, minZ: 0.18, maxZ: 1.18, kind: 'window' }
-          : { minX: 1.42, maxX: 1.95, minZ: 0.25, maxZ: 1.25, kind: 'window' }
+          ? { minX: 1.48, maxX: 1.95, minZ: 0.18, maxZ: 1.33, kind: 'window' }
+          : { minX: 1.48, maxX: 1.95, minZ: 0.25, maxZ: 1.4, kind: 'window' }
       );
     }
 
@@ -1711,29 +1731,37 @@ export class BathroomRoom {
     return best || this.showerPlacement;
   }
 
-  findNearestSanitaryPlacement(kind, wx, wz) {
-    const halfW = 0.22;
-    const segs = this.getBaseWallSegments().filter((s) => s.len >= 0.48);
+  findNearestSanitaryPlacement(kind, wx, wz, { ignoreOtherSanitary = false } = {}) {
+    const halfW = 0.2;
+    const segs = this.getBaseWallSegments().filter((s) => s.len >= 0.42);
     const shBox = this.getShowerAABB();
     const vanInfo = this.getVanityPoseAndAABB(this.vanityPlacement, shBox);
-    // Bidet involves the 190cm scaldasalviette on the wall above it, so keep it clear of the window;
-    // low WC (height 42cm, flush plate at 100cm) can also stay clear of window or fit along walls cleanly.
-    const forbidden = this.getForbiddenFixtureBoxes({
+    // Allow WC and Bidet to move freely along North wall (up to the East corner, since window sill is at 80cm height)
+    // as well as any other free wall segment in the bathroom.
+    let forbidden = this.getForbiddenFixtureBoxes({
       excludeKind: kind,
-      allowWindow: false,
+      allowWindow: true,
     });
+    if (ignoreOtherSanitary) {
+      forbidden = forbidden.filter((fb) => fb.kind !== 'bidet' && fb.kind !== 'wc');
+    }
 
     let best = null;
     let bestDistSq = Infinity;
 
     for (const seg of segs) {
-      for (let s = halfW + 0.02; s <= seg.len - halfW - 0.02 + 0.001; s += 0.02) {
-        const cand = { wallId: seg.id, s: Math.min(seg.len - halfW - 0.02, s) };
+      // On East wall, keep Bidet (which carries the 190cm scaldasalviette above it) outside the window opening
+      for (let s = halfW + 0.01; s <= seg.len - halfW - 0.01 + 0.001; s += 0.015) {
+        const sClamped = Math.min(seg.len - halfW - 0.01, s);
+        if (kind === 'bidet' && seg.openings?.some((op) => op.kind === 'window' && sClamped + halfW > op.s0 && sClamped - halfW < op.s1)) {
+          continue;
+        }
+        const cand = { wallId: seg.id, s: sClamped };
         const box = this.getSanitaryPoseAndAABB(kind, cand);
         if (!this.isBoxInsideRoom(box, 0.02)) continue;
         if (shBox && this.boxesOverlap(box, shBox, 0.015)) continue;
         if (vanInfo && this.boxesOverlap(box, vanInfo, 0.015)) continue;
-        if (forbidden.some((fb) => this.boxesOverlap(box, fb, 0.015))) continue;
+        if (forbidden.some((fb) => this.boxesOverlap(box, fb, 0.012))) continue;
 
         const dSq = (box.cx - wx) ** 2 + (box.cz - wz) ** 2;
         if (dSq < bestDistSq) {
@@ -1744,6 +1772,72 @@ export class BathroomRoom {
     }
 
     return best || (kind === 'bidet' ? this.bidetPlacement : this.wcPlacement);
+  }
+
+  dragSanitaryFixture(kind, wx, wz) {
+    const otherKind = kind === 'wc' ? 'bidet' : 'wc';
+    const curSelf = kind === 'wc' ? this.wcPlacement : this.bidetPlacement;
+    const curOther = otherKind === 'wc' ? this.wcPlacement : this.bidetPlacement;
+
+    // 1. Find ideal placement for `kind` ignoring `otherKind`
+    const idealSelf = this.findNearestSanitaryPlacement(kind, wx, wz, { ignoreOtherSanitary: true });
+    const idealSelfBox = this.getSanitaryPoseAndAABB(kind, idealSelf);
+    const otherBox = this.getSanitaryPoseAndAABB(otherKind, curOther);
+
+    // If ideal placement doesn't collide with the other sanitary fixture, apply directly
+    if (!this.boxesOverlap(idealSelfBox, otherBox, 0.012)) {
+      return kind === 'wc'
+        ? { wcPlacement: idealSelf, bidetPlacement: { ...this.bidetPlacement } }
+        : { bidetPlacement: idealSelf, wcPlacement: { ...this.wcPlacement } };
+    }
+
+    // 2. If they collide on the same wall, try pushing or swapping `otherKind` along that wall
+    if (idealSelf.wallId === curOther.wallId) {
+      const seg = this.getBaseWallSegments().find((s) => s.id === idealSelf.wallId);
+      if (seg) {
+        const halfW = 0.2;
+        const minSpacing = 0.425;
+        const shBox = this.getShowerAABB();
+        const vanInfo = this.getVanityPoseAndAABB(this.vanityPlacement, shBox);
+        const baseForbidden = this.getForbiddenFixtureBoxes({
+          excludeKind: otherKind,
+          allowWindow: true,
+        }).filter((fb) => fb.kind !== kind);
+
+        const pushDir = curSelf.wallId === curOther.wallId && curSelf.s > curOther.s ? -1 : 1;
+        const candidateOffsets = [pushDir * minSpacing, -pushDir * minSpacing];
+
+        for (const offset of candidateOffsets) {
+          const sOtherCand = Math.round((idealSelf.s + offset) * 1000) / 1000;
+          if (sOtherCand < halfW + 0.01 || sOtherCand > seg.len - halfW - 0.01) continue;
+          if (
+            otherKind === 'bidet' &&
+            seg.openings?.some(
+              (op) => op.kind === 'window' && sOtherCand + halfW > op.s0 && sOtherCand - halfW < op.s1
+            )
+          ) {
+            continue;
+          }
+          const candOther = { wallId: seg.id, s: sOtherCand };
+          const candOtherBox = this.getSanitaryPoseAndAABB(otherKind, candOther);
+          if (!this.isBoxInsideRoom(candOtherBox, 0.02)) continue;
+          if (shBox && this.boxesOverlap(candOtherBox, shBox, 0.015)) continue;
+          if (vanInfo && this.boxesOverlap(candOtherBox, vanInfo, 0.015)) continue;
+          if (this.boxesOverlap(candOtherBox, idealSelfBox, 0.012)) continue;
+          if (baseForbidden.some((fb) => this.boxesOverlap(candOtherBox, fb, 0.012))) continue;
+
+          return kind === 'wc'
+            ? { wcPlacement: idealSelf, bidetPlacement: candOther }
+            : { bidetPlacement: idealSelf, wcPlacement: candOther };
+        }
+      }
+    }
+
+    // 3. Fallback: standard constrained nearest placement
+    const fallbackSelf = this.findNearestSanitaryPlacement(kind, wx, wz);
+    return kind === 'wc'
+      ? { wcPlacement: fallbackSelf, bidetPlacement: { ...this.bidetPlacement } }
+      : { bidetPlacement: fallbackSelf, wcPlacement: { ...this.wcPlacement } };
   }
 
   setFixturesConfig({
@@ -1823,6 +1917,12 @@ export class BathroomRoom {
 
   setPaintColor(hex) {
     this.wallPaintMaterial.color.set(hex);
+  }
+
+  setShowerTrayColor(hex) {
+    if (this.showerTrayMaterial) {
+      this.showerTrayMaterial.color.set(hex);
+    }
   }
 
   setMetalFinish(finish) {

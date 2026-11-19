@@ -16,6 +16,17 @@ import { VANITY_MODELS, VanityManager } from './vanities.js';
 import { CatalogSelector, VanityCatalogSelector } from './catalogUI.js';
 
 const STORAGE_KEY = 'simulatore_bagno_state_v1';
+const UNDO_STORAGE_KEY = 'simulatore_bagno_undo_v1';
+const MAX_UNDO_STEPS = 30;
+
+const SHOWER_TRAY_FINISHES = [
+  { id: 'white-stone', name: 'Bianco Pietra Opaco', hex: '#f4f3ef' },
+  { id: 'sand-stone', name: 'Beige Sabbia Naturale', hex: '#dfd5c5' },
+  { id: 'corda-taupe', name: 'Tortora Corda', hex: '#b8aea0' },
+  { id: 'cement-grey', name: 'Grigio Cemento', hex: '#9ca1a6' },
+  { id: 'slate-anthracite', name: 'Antracite Ardesia', hex: '#484d52' },
+  { id: 'carbon-black', name: 'Nero Carbone', hex: '#26292c' },
+];
 
 const canvas = document.getElementById('viewport');
 const renderer = new THREE.WebGLRenderer({
@@ -76,6 +87,7 @@ function createDefaultRoomConfig(roomKey = 'ground') {
     metalFinish: 'chrome',
     showerEnabled: fixDefs.showerEnabled,
     showerSize: fixDefs.showerSize || '80x80',
+    showerTrayFinishId: SHOWER_TRAY_FINISHES[0].id,
     showerPlacement: { ...fixDefs.showerPlacement },
     vanityPlacement: { ...fixDefs.vanityPlacement },
     bidetPlacement: { ...fixDefs.bidetPlacement },
@@ -92,6 +104,8 @@ function loadAppState() {
         activeRoom: parsed.activeRoom === 'first' ? 'first' : 'ground',
         lightingMode: parsed.lightingMode === 'night' ? 'night' : 'day',
         exposure: Number.isFinite(parsed.exposure) ? parsed.exposure : 78,
+        lastModifiedAt: parsed.lastModifiedAt || null,
+        lastActionLabel: parsed.lastActionLabel || null,
         rooms: {
           ground: { ...createDefaultRoomConfig('ground'), ...(parsed.rooms?.ground || {}) },
           first: parsed.rooms?.first
@@ -107,6 +121,8 @@ function loadAppState() {
     activeRoom: 'ground',
     lightingMode: 'day',
     exposure: 78,
+    lastModifiedAt: null,
+    lastActionLabel: null,
     rooms: {
       ground: createDefaultRoomConfig('ground'),
       first: null,
@@ -114,8 +130,31 @@ function loadAppState() {
   };
 }
 
+function loadUndoStack() {
+  try {
+    const raw = localStorage.getItem(UNDO_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.slice(-MAX_UNDO_STEPS);
+    }
+  } catch (err) {
+    console.warn('Impossibile leggere cronologia undo:', err);
+  }
+  return [];
+}
+
+function persistUndoStack() {
+  try {
+    localStorage.setItem(UNDO_STORAGE_KEY, JSON.stringify(undoStack.slice(-MAX_UNDO_STEPS)));
+  } catch (err) {
+    console.warn('Impossibile salvare cronologia undo:', err);
+  }
+}
+
 const appState = loadAppState();
+const undoStack = loadUndoStack();
 let isRestoringRoom = false;
+let preDragSnapshot = null;
 
 let floorSelector = null;
 let wallSelector = null;
@@ -126,8 +165,8 @@ let vanityCatalogSelector = null;
 // Interactive 3D tool state
 let wallPaintMode = false;
 let moveFixturesMode = false;
-let selectedFixture = null; // 'vanity' | 'shower' | null
-let draggingFixture = null; // 'vanity' | 'shower' | null
+let selectedFixture = null; // 'vanity' | 'shower' | 'bidet' | 'wc' | null
+let draggingFixture = null; // 'vanity' | 'shower' | 'bidet' | 'wc' | null
 
 function getCurrentRoomState() {
   if (!appState.rooms[appState.activeRoom]) {
@@ -164,14 +203,103 @@ function showToast(msg) {
   }, 2300);
 }
 
-function saveAppState() {
+function captureCurrentSnapshot(label = 'Modifica') {
+  getCurrentRoomState();
+  return {
+    activeRoom: appState.activeRoom,
+    rooms: JSON.parse(JSON.stringify(appState.rooms)),
+    label,
+    timestamp: new Date().toLocaleTimeString('it-IT', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }),
+  };
+}
+
+function syncUndoButtonsUI() {
+  const hasUndo = undoStack.length > 0;
+  const lastSnap = hasUndo ? undoStack[undoStack.length - 1] : null;
+  for (const id of ['btn-undo', 'btn-undo-panel']) {
+    const btn = document.getElementById(id);
+    if (!btn) continue;
+    btn.disabled = !hasUndo;
+    btn.title = hasUndo
+      ? `Annulla: ${lastSnap.label || 'Ultima modifica'} (${undoStack.length}) — Ctrl+Z`
+      : 'Nessuna modifica da annullare (Ctrl+Z)';
+  }
+}
+
+function recordUndoSnapshot(label = 'Modifica') {
+  if (isRestoringRoom) return;
+  const snap = captureCurrentSnapshot(label);
+  const prev = undoStack.length > 0 ? undoStack[undoStack.length - 1] : null;
+  if (
+    prev &&
+    prev.activeRoom === snap.activeRoom &&
+    JSON.stringify(prev.rooms) === JSON.stringify(snap.rooms)
+  ) {
+    prev.label = label;
+    syncUndoButtonsUI();
+    return;
+  }
+  undoStack.push(snap);
+  if (undoStack.length > MAX_UNDO_STEPS) {
+    undoStack.shift();
+  }
+  persistUndoStack();
+  syncUndoButtonsUI();
+}
+
+async function performUndo() {
+  if (undoStack.length === 0) {
+    showToast('↩️ Nessuna modifica precedente da annullare');
+    return;
+  }
+  const snap = undoStack.pop();
+  persistUndoStack();
+  syncUndoButtonsUI();
+
+  appState.rooms = JSON.parse(JSON.stringify(snap.rooms));
+  const targetRoom = snap.activeRoom || appState.activeRoom;
+  await applyRoomConfigToSceneAndUI(targetRoom, {
+    resetCamera: targetRoom !== appState.activeRoom,
+  });
+  saveAppState(`Annullato: ${snap.label || 'Modifica'}`);
+  showToast(`↩️ Annullata modifica: ${snap.label || 'Stato precedente ripristinato'}`);
+}
+
+function updateSavedIndicatorUI() {
+  const ind = document.getElementById('saved-indicator');
+  if (!ind) return;
+  if (appState.lastModifiedAt) {
+    const lbl = appState.lastActionLabel ? ` · ${appState.lastActionLabel}` : '';
+    ind.textContent = `💾 Salvato ${appState.lastModifiedAt}${lbl}`;
+  } else {
+    ind.textContent = '💾 Rivestimenti memorizzati';
+  }
+}
+
+function saveAppState(actionLabel = null) {
   if (isRestoringRoom) return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
-    const ind = document.getElementById('saved-indicator');
-    if (ind) {
-      ind.textContent = '💾 Rivestimenti memorizzati';
+    if (actionLabel) {
+      appState.lastModifiedAt = new Date().toLocaleTimeString('it-IT', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+      appState.lastActionLabel = actionLabel;
+    } else if (!appState.lastModifiedAt) {
+      appState.lastModifiedAt = new Date().toLocaleTimeString('it-IT', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
     }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+    updateSavedIndicatorUI();
+    syncUndoButtonsUI();
   } catch (err) {
     console.warn('Errore salvataggio localStorage:', err);
   }
@@ -330,6 +458,17 @@ const KEY_MAP = {
 };
 
 window.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    performUndo();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    saveAppState('Salvataggio manuale');
+    showToast('💾 Ultima modifica salvata correttamente!');
+    return;
+  }
   if (e.target && e.target.matches('input, select, textarea')) {
     return;
   }
@@ -440,10 +579,47 @@ function raycastMovableFixture(clientX, clientY) {
 
 function raycastFloorDragCoords(clientX, clientY) {
   updateRaycasterFromClient(clientX, clientY);
+  // First intersect visible walls & floor so dragging at any vertical height on a wall tracks (x, z) accurately
+  const hitTargets = [];
+  if (room.floorMesh) hitTargets.push(room.floorMesh);
+  for (const w of room.wallGroups) {
+    if (w.group.visible) hitTargets.push(w.group);
+  }
+  if (hitTargets.length > 0) {
+    const hits = raycaster.intersectObjects(hitTargets, true);
+    if (hits.length > 0) {
+      return { x: hits[0].point.x, z: hits[0].point.z };
+    }
+  }
   if (raycaster.ray.intersectPlane(dragFloorPlane, dragHitPoint)) {
     return { x: dragHitPoint.x, z: dragHitPoint.z };
   }
   return null;
+}
+
+function applyFixtureDragAtWorldCoords(fixtureKind, wx, wz) {
+  if (fixtureKind === 'vanity') {
+    const nextP = room.findNearestVanityPlacement(wx, wz);
+    room.setFixturesConfig({ vanityPlacement: nextP });
+    getCurrentRoomState().vanityPlacement = { ...nextP };
+    syncVanityPoseToRoom();
+  } else if (fixtureKind === 'shower' && room.showerEnabled) {
+    const nextP = room.findNearestShowerPlacement(wx, wz);
+    room.setFixturesConfig({ showerPlacement: nextP });
+    getCurrentRoomState().showerPlacement = { ...nextP };
+    syncShowerPresenceUI();
+    syncVanityPoseToRoom();
+  } else if (fixtureKind === 'bidet' || fixtureKind === 'wc') {
+    const res = room.dragSanitaryFixture(fixtureKind, wx, wz);
+    room.setFixturesConfig({
+      bidetPlacement: res.bidetPlacement,
+      wcPlacement: res.wcPlacement,
+    });
+    getCurrentRoomState().bidetPlacement = { ...res.bidetPlacement };
+    getCurrentRoomState().wcPlacement = { ...res.wcPlacement };
+    syncVanityPoseToRoom();
+  }
+  room.setSelectedFixtureHighlight(fixtureKind);
 }
 
 function syncVanityPoseToRoom() {
@@ -505,10 +681,11 @@ function syncCustomWallsListUI() {
     chip.title = 'Clicca per ripristinare questa parete al rivestimento generale';
     chip.textContent = `${segMap.get(wallId) || wallId} ✕`;
     chip.addEventListener('click', () => {
+      recordUndoSnapshot(`Ripristino ${segMap.get(wallId) || wallId}`);
       delete cfg.perWallSpecs[wallId];
       room.clearSingleWallMaterial(wallId);
       syncCustomWallsListUI();
-      saveAppState();
+      saveAppState(`Parete ripristinata: ${segMap.get(wallId) || wallId}`);
       showToast(`Parete ripristinata: ${segMap.get(wallId) || wallId}`);
     });
     list.appendChild(chip);
@@ -553,7 +730,7 @@ function setMoveFixturesMode(enabled) {
   if (moveFixturesMode) {
     setWallPaintMode(false);
     if (!selectedFixture) {
-      selectedFixture = room.showerEnabled ? 'shower' : 'vanity';
+      selectedFixture = 'wc';
     }
     room.setSelectedFixtureHighlight(selectedFixture);
   } else {
@@ -572,12 +749,13 @@ function applySingleWallAtClient(clientX, clientY) {
   if (!hitW) return false;
   const brush = getActiveSingleWallBrush();
   if (!brush) return false;
+  recordUndoSnapshot(`Piastrella su ${hitW.wallLabel}`);
   room.applySingleWallBundle(hitW.wallId, brush.bundle);
   const cfg = getCurrentRoomState();
   if (!cfg.perWallSpecs) cfg.perWallSpecs = {};
   cfg.perWallSpecs[hitW.wallId] = brush.spec;
   syncCustomWallsListUI();
-  saveAppState();
+  saveAppState(`Piastrella su ${hitW.wallLabel}`);
   showToast(`🖌️ "${brush.title}" applicato a ${hitW.wallLabel}`);
   return true;
 }
@@ -588,6 +766,13 @@ let prevPointer = { x: 0, y: 0 };
 let pointerTravel = 0;
 let lastTouchTapTime = 0;
 let lastTouchTapPos = { x: 0, y: 0 };
+
+const FIXTURE_LABELS = {
+  shower: () => `Box Doccia ${room.getShowerDimensions().label}`,
+  vanity: () => 'Mobile Bagno',
+  bidet: () => 'Bidet + Scaldasalviette',
+  wc: () => 'WC Sospeso',
+};
 
 canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
@@ -601,6 +786,8 @@ canvas.addEventListener('pointerdown', (e) => {
     if (hitFixture) {
       selectedFixture = hitFixture;
       draggingFixture = hitFixture;
+      const lbl = FIXTURE_LABELS[hitFixture]?.() || 'Arredo';
+      preDragSnapshot = captureCurrentSnapshot(`Spostamento ${lbl}`);
       room.setSelectedFixtureHighlight(hitFixture);
       canvas.style.cursor = 'grabbing';
       return;
@@ -619,28 +806,7 @@ canvas.addEventListener('pointermove', (e) => {
   if (draggingFixture && moveFixturesMode) {
     const pt = raycastFloorDragCoords(e.clientX, e.clientY);
     if (pt) {
-      if (draggingFixture === 'vanity') {
-        const nextP = room.findNearestVanityPlacement(pt.x, pt.z);
-        room.setFixturesConfig({ vanityPlacement: nextP });
-        getCurrentRoomState().vanityPlacement = { ...nextP };
-        syncVanityPoseToRoom();
-      } else if (draggingFixture === 'shower' && room.showerEnabled) {
-        const nextP = room.findNearestShowerPlacement(pt.x, pt.z);
-        room.setFixturesConfig({ showerPlacement: nextP });
-        getCurrentRoomState().showerPlacement = { ...nextP };
-        syncVanityPoseToRoom();
-      } else if (draggingFixture === 'bidet' || draggingFixture === 'wc') {
-        const nextP = room.findNearestSanitaryPlacement(draggingFixture, pt.x, pt.z);
-        if (draggingFixture === 'bidet') {
-          room.setFixturesConfig({ bidetPlacement: nextP });
-          getCurrentRoomState().bidetPlacement = { ...nextP };
-        } else {
-          room.setFixturesConfig({ wcPlacement: nextP });
-          getCurrentRoomState().wcPlacement = { ...nextP };
-        }
-        syncVanityPoseToRoom();
-      }
-      room.setSelectedFixtureHighlight(draggingFixture);
+      applyFixtureDragAtWorldCoords(draggingFixture, pt.x, pt.z);
     }
     return;
   }
@@ -674,19 +840,33 @@ canvas.addEventListener('pointermove', (e) => {
   }
 });
 
+function finalizeFixtureDrag(movedType) {
+  const label = FIXTURE_LABELS[movedType]?.() || 'Arredo';
+  if (preDragSnapshot) {
+    const curRoomsStr = JSON.stringify(appState.rooms);
+    const prevRoomsStr = JSON.stringify(preDragSnapshot.rooms);
+    if (curRoomsStr !== prevRoomsStr) {
+      undoStack.push(preDragSnapshot);
+      if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
+      persistUndoStack();
+      syncUndoButtonsUI();
+      saveAppState(`Posizione ${label}`);
+    } else {
+      saveAppState();
+    }
+    preDragSnapshot = null;
+  } else {
+    saveAppState(`Posizione ${label}`);
+  }
+}
+
 canvas.addEventListener('pointerup', (e) => {
   if (draggingFixture) {
     const movedType = draggingFixture;
     draggingFixture = null;
-    saveAppState();
+    finalizeFixtureDrag(movedType);
     if (pointerTravel < 5) {
-      const labels = {
-        shower: `Box Doccia ${room.getShowerDimensions().label}`,
-        vanity: 'Mobile Bagno',
-        bidet: 'Bidet + Scaldasalviette',
-        wc: 'WC Sospeso',
-      };
-      const label = labels[movedType] || 'Arredo';
+      const label = FIXTURE_LABELS[movedType]?.() || 'Arredo';
       showToast(`✋ ${label} selezionato — trascinalo lungo le pareti per spostarlo`);
     }
     canvas.style.cursor = moveFixturesMode ? 'move' : 'grab';
@@ -719,6 +899,7 @@ canvas.addEventListener('dblclick', (e) => {
 canvas.addEventListener('pointercancel', () => {
   isDragging = false;
   draggingFixture = null;
+  preDragSnapshot = null;
 });
 
 canvas.addEventListener(
@@ -762,15 +943,23 @@ function syncShowerPresenceUI() {
   const dimLabel = room.getShowerDimensions(sz).label;
   const btn = document.getElementById('btn-toggle-shower-box');
   const titleEl = document.getElementById('shower-presence-title');
+  const badgeEl = document.getElementById('shower-wall-badge');
   const btnPreset = document.getElementById('btn-preset-shower');
   const wrapHeight = document.getElementById('shower-height-wrap');
+  const wrapTabHeight = document.getElementById('shower-tab-height-wrap');
   const wrapSize = document.getElementById('shower-size-wrap');
+  const wrapTrayFinish = document.getElementById('shower-tray-finish-section');
   if (btn) {
     btn.textContent = on ? 'Presente ✓' : 'Assente';
     btn.classList.toggle('active', on);
   }
   if (titleEl) {
     titleEl.textContent = `🚿 Box Doccia ${dimLabel}`;
+  }
+  if (badgeEl) {
+    const shBox = room.getShowerAABB();
+    const wallLbl = shBox?.wall?.label ? ` · ${shBox.wall.label}` : '';
+    badgeEl.textContent = on ? `${dimLabel} cm${wallLbl}` : 'Assente';
   }
   if (btnPreset) {
     btnPreset.style.display = on ? 'inline-flex' : 'none';
@@ -779,8 +968,14 @@ function syncShowerPresenceUI() {
   if (wrapHeight) {
     wrapHeight.style.opacity = on ? '1' : '0.45';
   }
+  if (wrapTabHeight) {
+    wrapTabHeight.style.opacity = on ? '1' : '0.45';
+  }
   if (wrapSize) {
     wrapSize.style.opacity = on ? '1' : '0.5';
+  }
+  if (wrapTrayFinish) {
+    wrapTrayFinish.style.opacity = on ? '1' : '0.45';
   }
   document.querySelectorAll('#shower-size-group .pill-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.shsize === sz);
@@ -860,8 +1055,17 @@ async function applyRoomConfigToSceneAndUI(roomKey, { resetCamera = true } = {})
 
   const shHeight = cfg.showerTileHeightMode || 'fixed-210';
   room.setShowerTileHeightMode(shHeight);
-  document.querySelectorAll('#shower-height-group .pill-btn').forEach((b) => {
-    b.classList.toggle('active', b.dataset.sheight === shHeight);
+  document
+    .querySelectorAll('#shower-height-group .pill-btn, #shower-tab-height-group .pill-btn')
+    .forEach((b) => {
+      b.classList.toggle('active', b.dataset.sheight === shHeight);
+    });
+
+  const trayFinishObj =
+    SHOWER_TRAY_FINISHES.find((t) => t.id === cfg.showerTrayFinishId) || SHOWER_TRAY_FINISHES[0];
+  room.setShowerTrayColor(trayFinishObj.hex);
+  document.querySelectorAll('#shower-tray-finishes .color-dot').forEach((d) => {
+    d.classList.toggle('active', d.dataset.trayFinishId === trayFinishObj.id);
   });
 
   const paintObj = PAINT_COLORS.find((p) => p.id === cfg.paintId) || PAINT_COLORS[0];
@@ -960,6 +1164,20 @@ function initUI() {
     });
   });
 
+  // Undo & Save buttons (top bar + side panel)
+  document.getElementById('btn-undo')?.addEventListener('click', () => {
+    performUndo();
+  });
+  document.getElementById('btn-undo-panel')?.addEventListener('click', () => {
+    performUndo();
+  });
+  document.getElementById('btn-save-state')?.addEventListener('click', () => {
+    saveAppState('Salvataggio manuale');
+    showToast('💾 Ultima modifica salvata correttamente!');
+  });
+  updateSavedIndicatorUI();
+  syncUndoButtonsUI();
+
   // Copy coverings & furniture style from the other bathroom (preserving room's own valid wall placements)
   document.getElementById('btn-copy-other-room')?.addEventListener('click', async () => {
     const otherKey = appState.activeRoom === 'ground' ? 'first' : 'ground';
@@ -968,6 +1186,7 @@ function initUI() {
       showToast('Nessuna configurazione salvata nell’altro bagno');
       return;
     }
+    recordUndoSnapshot('Copia da altro bagno');
     const cur = getCurrentRoomState();
     appState.rooms[appState.activeRoom] = {
       ...JSON.parse(JSON.stringify(otherCfg)),
@@ -980,6 +1199,7 @@ function initUI() {
       wcPlacement: { ...(cur.wcPlacement || room.wcPlacement) },
     };
     await applyRoomConfigToSceneAndUI(appState.activeRoom, { resetCamera: false });
+    saveAppState('Copia da altro bagno');
     showToast('📋 Rivestimenti e arredo copiati dall’altro bagno!');
   });
 
@@ -1094,14 +1314,16 @@ function initUI() {
   });
 
   document.getElementById('btn-reset-all-walls')?.addEventListener('click', () => {
+    recordUndoSnapshot('Ripristino pareti singole');
     getCurrentRoomState().perWallSpecs = {};
     room.clearAllSingleWallMaterials();
     syncCustomWallsListUI();
-    saveAppState();
+    saveAppState('Pareti singole ripristinate');
     showToast('Tutte le pareti singole ripristinate al rivestimento generale');
   });
 
   document.getElementById('btn-reset-fixtures')?.addEventListener('click', () => {
+    recordUndoSnapshot('Ripristino posizione arredi');
     const defs = room.getDefaultFixturesForRoom(appState.activeRoom);
     const cfg = getCurrentRoomState();
     cfg.showerEnabled = defs.showerEnabled;
@@ -1120,11 +1342,12 @@ function initUI() {
     });
     syncShowerPresenceUI();
     syncVanityPoseToRoom();
-    saveAppState();
+    saveAppState('Posizione arredi ripristinata');
     showToast('↺ Posizione Mobile, Doccia, WC e Bidet ripristinata');
   });
 
   document.getElementById('btn-toggle-shower-box')?.addEventListener('click', () => {
+    recordUndoSnapshot(room.showerEnabled ? 'Rimozione box doccia' : 'Aggiunta box doccia');
     const next = !room.showerEnabled;
     const cfg = getCurrentRoomState();
     cfg.showerEnabled = next;
@@ -1147,13 +1370,15 @@ function initUI() {
     room.setFixturesConfig({ showerEnabled: next, showerSize: shSize, showerPlacement: shPlace });
     syncShowerPresenceUI();
     syncVanityPoseToRoom();
-    saveAppState();
+    saveAppState(next ? 'Box doccia attivato' : 'Box doccia rimosso');
   });
 
   document.querySelectorAll('#shower-size-group .pill-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const nextSize = btn.dataset.shsize || '80x80';
       const cfg = getCurrentRoomState();
+      if (cfg.showerSize === nextSize && room.showerEnabled) return;
+      recordUndoSnapshot(`Formato doccia ${room.getShowerDimensions(nextSize).label}`);
       cfg.showerSize = nextSize;
       let shPlace = cfg.showerPlacement || room.showerPlacement;
       const curBox = room.getShowerAABB(shPlace, true, room.showerSize);
@@ -1190,12 +1415,13 @@ function initUI() {
       }
       syncShowerPresenceUI();
       syncVanityPoseToRoom();
-      saveAppState();
+      saveAppState(`Piatto doccia ${room.getShowerDimensions(nextSize).label}`);
       showToast(`🚿 Piatto doccia impostato a ${room.getShowerDimensions(nextSize).label} cm`);
     });
   });
 
   document.getElementById('btn-toggle-vanity-wall').addEventListener('click', () => {
+    recordUndoSnapshot('Fascia parete mobile');
     const next = !room.vanityWallEnabled;
     if (next && vanityWallSelector?.currentBaseBundle) {
       room.applyVanityWallBundle(
@@ -1208,26 +1434,30 @@ function initUI() {
     room.setVanityWallEnabled(next);
     getCurrentRoomState().vanityWallEnabled = next;
     syncVanityWallStatusUI();
-    saveAppState();
+    saveAppState(next ? 'Fascia mobile attivata' : 'Fascia mobile disattivata');
   });
 
   const spanGroup = document.getElementById('vanity-span-group');
   spanGroup.querySelectorAll('.pill-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
+      if (getCurrentRoomState().vanityZoneSpan === btn.dataset.span) return;
+      recordUndoSnapshot('Larghezza fascia mobile');
       room.setVanityWallOptions({ span: btn.dataset.span });
       getCurrentRoomState().vanityZoneSpan = btn.dataset.span;
       spanGroup.querySelectorAll('.pill-btn').forEach((b) => b.classList.toggle('active', b === btn));
-      saveAppState();
+      saveAppState('Larghezza fascia mobile');
     });
   });
 
   const vHeightGroup = document.getElementById('vanity-height-group');
   vHeightGroup.querySelectorAll('.pill-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
+      if (getCurrentRoomState().vanityWallHeightMode === btn.dataset.vheight) return;
+      recordUndoSnapshot('Altezza fascia mobile');
       room.setVanityWallOptions({ heightMode: btn.dataset.vheight });
       getCurrentRoomState().vanityWallHeightMode = btn.dataset.vheight;
       vHeightGroup.querySelectorAll('.pill-btn').forEach((b) => b.classList.toggle('active', b === btn));
-      saveAppState();
+      saveAppState('Altezza fascia mobile');
     });
   });
 
@@ -1236,6 +1466,8 @@ function initUI() {
   heightGroup.querySelectorAll('.pill-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const mode = btn.dataset.height;
+      if (getCurrentRoomState().tileHeightMode === mode) return;
+      recordUndoSnapshot('Altezza piastrelle pareti');
       room.setTileHeightMode(mode);
       getCurrentRoomState().tileHeightMode = mode;
       heightGroup.querySelectorAll('.pill-btn').forEach((b) => {
@@ -1243,23 +1475,70 @@ function initUI() {
       });
       document.getElementById('paint-color-section').style.opacity =
         mode === 'full' ? '0.45' : '1';
-      saveAppState();
+      saveAppState('Altezza piastrelle pareti');
     });
   });
 
-  // Shower fixed tile height mode (locks shower tiles at 210 or 270 cm even when general walls change!)
-  const showerHeightGroup = document.getElementById('shower-height-group');
-  showerHeightGroup?.querySelectorAll('.pill-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const smode = btn.dataset.sheight;
-      room.setShowerTileHeightMode(smode);
-      getCurrentRoomState().showerTileHeightMode = smode;
-      showerHeightGroup.querySelectorAll('.pill-btn').forEach((b) => {
-        b.classList.toggle('active', b === btn);
-      });
-      saveAppState();
-    });
+  document.getElementById('btn-move-shower-quick')?.addEventListener('click', () => {
+    const cfg = getCurrentRoomState();
+    if (!room.showerEnabled) {
+      recordUndoSnapshot('Aggiunta box doccia');
+      cfg.showerEnabled = true;
+      const shSize = cfg.showerSize || '80x80';
+      const shPlace = room.findNearestShowerPlacement(1.5, 2.5, shSize);
+      cfg.showerPlacement = { ...shPlace };
+      room.setFixturesConfig({ showerEnabled: true, showerSize: shSize, showerPlacement: shPlace });
+      syncShowerPresenceUI();
+      syncVanityPoseToRoom();
+      saveAppState('Box doccia attivato');
+    }
+    selectedFixture = 'shower';
+    setMoveFixturesMode(true);
+    room.setSelectedFixtureHighlight('shower');
+    showToast('✋ Trascina il Box Doccia lungo le pareti in 3D o sulla Piantina 2D');
   });
+
+  // Shower fixed tile height mode (locks shower tiles at 210 or 270 cm even when general walls change!)
+  const applyShowerHeightSelection = (smode) => {
+    if (getCurrentRoomState().showerTileHeightMode === smode) return;
+    recordUndoSnapshot('Altezza piastrelle doccia');
+    room.setShowerTileHeightMode(smode);
+    getCurrentRoomState().showerTileHeightMode = smode;
+    document
+      .querySelectorAll('#shower-height-group .pill-btn, #shower-tab-height-group .pill-btn')
+      .forEach((b) => {
+        b.classList.toggle('active', b.dataset.sheight === smode);
+      });
+    saveAppState('Altezza piastrelle doccia');
+  };
+
+  document
+    .querySelectorAll('#shower-height-group .pill-btn, #shower-tab-height-group .pill-btn')
+    .forEach((btn) => {
+      btn.addEventListener('click', () => applyShowerHeightSelection(btn.dataset.sheight));
+    });
+
+  // Shower tray stone-resin finishes
+  const trayFinishContainer = document.getElementById('shower-tray-finishes');
+  if (trayFinishContainer) {
+    SHOWER_TRAY_FINISHES.forEach((tf) => {
+      const dot = document.createElement('button');
+      dot.className = 'color-dot';
+      dot.dataset.trayFinishId = tf.id;
+      dot.style.backgroundColor = tf.hex;
+      dot.title = tf.name;
+      dot.addEventListener('click', () => {
+        if (getCurrentRoomState().showerTrayFinishId === tf.id) return;
+        recordUndoSnapshot(`Colore piatto doccia ${tf.name}`);
+        getCurrentRoomState().showerTrayFinishId = tf.id;
+        room.setShowerTrayColor(tf.hex);
+        trayFinishContainer.querySelectorAll('.color-dot').forEach((d) => d.classList.remove('active'));
+        dot.classList.add('active');
+        saveAppState(`Piatto doccia ${tf.name}`);
+      });
+      trayFinishContainer.appendChild(dot);
+    });
+  }
 
   // Upper wall paint colors
   const paintContainer = document.getElementById('paint-colors');
@@ -1270,11 +1549,13 @@ function initUI() {
     dot.style.backgroundColor = col.hex;
     dot.title = col.name;
     dot.addEventListener('click', () => {
+      if (getCurrentRoomState().paintId === col.id) return;
+      recordUndoSnapshot(`Intonaco ${col.name}`);
       getCurrentRoomState().paintId = col.id;
       room.setPaintColor(col.hex);
       paintContainer.querySelectorAll('.color-dot').forEach((d) => d.classList.remove('active'));
       dot.classList.add('active');
-      saveAppState();
+      saveAppState(`Intonaco ${col.name}`);
     });
     paintContainer.appendChild(dot);
   });
@@ -1288,11 +1569,13 @@ function initUI() {
     dot.style.backgroundColor = f.hex;
     dot.title = f.name;
     dot.addEventListener('click', () => {
+      if (getCurrentRoomState().vanityFinishId === f.id) return;
+      recordUndoSnapshot(`Finitura mobile ${f.name}`);
       getCurrentRoomState().vanityFinishId = f.id;
       vanityManager.setFinish(f);
       finishContainer.querySelectorAll('.color-dot').forEach((d) => d.classList.remove('active'));
       dot.classList.add('active');
-      saveAppState();
+      saveAppState(`Finitura mobile ${f.name}`);
     });
     finishContainer.appendChild(dot);
   });
@@ -1301,10 +1584,12 @@ function initUI() {
   const metalGroup = document.getElementById('metal-finish-group');
   metalGroup.querySelectorAll('.pill-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
+      if (getCurrentRoomState().metalFinish === btn.dataset.metal) return;
+      recordUndoSnapshot(`Rubinetteria ${btn.textContent.trim()}`);
       getCurrentRoomState().metalFinish = btn.dataset.metal;
       room.setMetalFinish(btn.dataset.metal);
       metalGroup.querySelectorAll('.pill-btn').forEach((b) => b.classList.toggle('active', b === btn));
-      saveAppState();
+      saveAppState(`Rubinetteria ${btn.textContent.trim()}`);
     });
   });
 
@@ -1376,10 +1661,14 @@ function initUI() {
             presetModels: VANITY_MODELS,
             initialModelId: getCurrentRoomState().vanityModelId || VANITY_MODELS[0].id,
             onSelectModel: (modelId) => {
-              getCurrentRoomState().vanityModelId = modelId;
+              const cfg = getCurrentRoomState();
+              if (!isRestoringRoom && cfg.vanityModelId !== modelId) {
+                recordUndoSnapshot('Modello mobile bagno');
+              }
+              cfg.vanityModelId = modelId;
               vanityManager.setModel(modelId);
               syncVanityPoseToRoom();
-              saveAppState();
+              saveAppState('Mobile bagno aggiornato');
             },
           });
         }
@@ -1424,8 +1713,12 @@ function initUI() {
         initialPreset: FLOOR_PRESETS[0],
         onApplyBundle: (bundle) => room.applyFloorBundle(bundle),
         onSelectionChange: (spec) => {
-          getCurrentRoomState().floor = spec;
-          saveAppState();
+          const cfg = getCurrentRoomState();
+          if (!isRestoringRoom && JSON.stringify(cfg.floor) !== JSON.stringify(spec)) {
+            recordUndoSnapshot('Piastrella pavimento');
+          }
+          cfg.floor = spec;
+          saveAppState('Pavimento aggiornato');
         },
       });
 
@@ -1441,6 +1734,7 @@ function initUI() {
           if (!isRestoringRoom && !wallPaintMode) {
             const cfg = getCurrentRoomState();
             if (cfg.perWallSpecs && Object.keys(cfg.perWallSpecs).length > 0) {
+              recordUndoSnapshot('Rivestimento pareti');
               cfg.perWallSpecs = {};
               room.clearAllSingleWallMaterials();
               syncCustomWallsListUI();
@@ -1449,8 +1743,12 @@ function initUI() {
           room.applyWallBundle(bundle);
         },
         onSelectionChange: (spec) => {
-          getCurrentRoomState().wall = spec;
-          saveAppState();
+          const cfg = getCurrentRoomState();
+          if (!isRestoringRoom && JSON.stringify(cfg.wall) !== JSON.stringify(spec)) {
+            recordUndoSnapshot('Rivestimento pareti');
+          }
+          cfg.wall = spec;
+          saveAppState('Rivestimento pareti aggiornato');
         },
       });
 
@@ -1464,6 +1762,7 @@ function initUI() {
           if (isRestoringRoom) return;
           if (!wallPaintMode) {
             // Safety fallback: if Clicca Parete is deselected, apply to all walls
+            recordUndoSnapshot('Rivestimento pareti');
             const cfg = getCurrentRoomState();
             cfg.perWallSpecs = {};
             room.clearAllSingleWallMaterials();
@@ -1490,9 +1789,13 @@ function initUI() {
           syncVanityWallStatusUI();
         },
         onSelectionChange: (spec) => {
-          getCurrentRoomState().vanityWall = spec;
-          getCurrentRoomState().vanityWallEnabled = room.vanityWallEnabled;
-          saveAppState();
+          const cfg = getCurrentRoomState();
+          if (!isRestoringRoom && JSON.stringify(cfg.vanityWall) !== JSON.stringify(spec)) {
+            recordUndoSnapshot('Piastrella fascia mobile');
+          }
+          cfg.vanityWall = spec;
+          cfg.vanityWallEnabled = room.vanityWallEnabled;
+          saveAppState('Fascia mobile aggiornata');
         },
       });
 
@@ -1514,13 +1817,71 @@ function toMap(x, z) {
   return [MAP_OX + x * MAP_SCALE, MAP_OY + z * MAP_SCALE];
 }
 
-minimapCanvas.addEventListener('click', (e) => {
+function minimapClientToWorld(clientX, clientY) {
   const rect = minimapCanvas.getBoundingClientRect();
-  const px = (e.clientX - rect.left) * (minimapCanvas.width / rect.width);
-  const py = (e.clientY - rect.top) * (minimapCanvas.height / rect.height);
-  const wx = (px - MAP_OX) / MAP_SCALE;
-  const wz = (py - MAP_OY) / MAP_SCALE;
+  const px = (clientX - rect.left) * (minimapCanvas.width / rect.width);
+  const py = (clientY - rect.top) * (minimapCanvas.height / rect.height);
+  return {
+    wx: (px - MAP_OX) / MAP_SCALE,
+    wz: (py - MAP_OY) / MAP_SCALE,
+  };
+}
 
+function hitTestMinimapFixture(wx, wz) {
+  const pad = 0.08;
+  for (const kind of ['wc', 'bidet']) {
+    const sp = room.getSanitaryPoseAndAABB(kind);
+    if (
+      sp &&
+      wx >= sp.minX - pad &&
+      wx <= sp.maxX + pad &&
+      wz >= sp.minZ - pad &&
+      wz <= sp.maxZ + pad
+    ) {
+      return kind;
+    }
+  }
+  const vp = room.getVanityPoseAndAABB();
+  if (
+    vp &&
+    wx >= vp.minX - pad &&
+    wx <= vp.maxX + pad &&
+    wz >= vp.minZ - pad &&
+    wz <= vp.maxZ + pad
+  ) {
+    return 'vanity';
+  }
+  const sb = room.getShowerAABB();
+  if (
+    sb &&
+    wx >= sb.minX - pad &&
+    wx <= sb.maxX + pad &&
+    wz >= sb.minZ - pad &&
+    wz <= sb.maxZ + pad
+  ) {
+    return 'shower';
+  }
+  return null;
+}
+
+let minimapDraggingFixture = null;
+
+minimapCanvas.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  const { wx, wz } = minimapClientToWorld(e.clientX, e.clientY);
+  if (moveFixturesMode) {
+    const hitF = hitTestMinimapFixture(wx, wz);
+    if (hitF) {
+      e.preventDefault();
+      minimapCanvas.setPointerCapture(e.pointerId);
+      selectedFixture = hitF;
+      minimapDraggingFixture = hitF;
+      const lbl = FIXTURE_LABELS[hitF]?.() || 'Arredo';
+      preDragSnapshot = captureCurrentSnapshot(`Spostamento ${lbl}`);
+      room.setSelectedFixtureHighlight(hitF);
+      return;
+    }
+  }
   if (wx >= -0.1 && wx <= 2.0 && wz >= -0.1 && wz <= 3.0) {
     navState.mode = 'walk';
     const clamped = room.clampWalkPosition(wx, wz);
@@ -1530,6 +1891,28 @@ minimapCanvas.addEventListener('click', (e) => {
     camera.updateProjectionMatrix();
     room.setCutawayMode(false);
     document.querySelectorAll('.cam-btn[data-preset]').forEach((b) => b.classList.remove('active'));
+  }
+});
+
+minimapCanvas.addEventListener('pointermove', (e) => {
+  const { wx, wz } = minimapClientToWorld(e.clientX, e.clientY);
+  if (minimapDraggingFixture && moveFixturesMode) {
+    applyFixtureDragAtWorldCoords(minimapDraggingFixture, wx, wz);
+    return;
+  }
+  if (moveFixturesMode) {
+    const hitF = hitTestMinimapFixture(wx, wz);
+    minimapCanvas.style.cursor = hitF ? 'move' : 'pointer';
+  } else {
+    minimapCanvas.style.cursor = 'pointer';
+  }
+});
+
+minimapCanvas.addEventListener('pointerup', () => {
+  if (minimapDraggingFixture) {
+    const movedType = minimapDraggingFixture;
+    minimapDraggingFixture = null;
+    finalizeFixtureDrag(movedType);
   }
 });
 
@@ -1664,9 +2047,9 @@ function drawMinimap() {
   }
 
   if (isFirst) {
-    // East Window 100/100 (z = 0.18..1.18)
+    // East Window 115x100 (z = 0.18..1.33)
     const [wx0, wy0] = toMap(1.88, 0.18);
-    const [, wy1] = toMap(1.88, 1.18);
+    const [, wy1] = toMap(1.88, 1.33);
     mCtx.strokeStyle = '#4da6dd';
     mCtx.lineWidth = 5;
     mCtx.beginPath();
@@ -1706,8 +2089,9 @@ function drawMinimap() {
     mCtx.font = '8px sans-serif';
     mCtx.fillText('292', MAP_OX - 13, MAP_OY + 1.5 * MAP_SCALE);
   } else {
+    // East Window 115x100 (z = 0.25..1.40)
     const [wx0, wy0] = toMap(1.88, 0.25);
-    const [, wy1] = toMap(1.88, 1.25);
+    const [, wy1] = toMap(1.88, 1.4);
     mCtx.strokeStyle = '#4da6dd';
     mCtx.lineWidth = 5;
     mCtx.beginPath();
@@ -1865,6 +2249,10 @@ window.addEventListener('resize', () => {
 
 window.__BATHROOM_SIM__ = {
   appState,
+  undoStack,
+  performUndo,
+  recordUndoSnapshot,
+  saveAppState,
   navState,
   applyCameraPreset,
   applyRoomConfigToSceneAndUI,

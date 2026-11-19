@@ -59,6 +59,12 @@
           <button class="cam-btn tool-btn" id="btn-move-fixtures-mode" title="Attiva per spostare Mobile Bagno, Box Doccia, WC o Bidet trascinandoli lungo le pareti">
             <span>✋</span> Sposta Arredi
           </button>
+          <button class="cam-btn" id="btn-undo" disabled title="Annulla ultima modifica (Ctrl+Z)">
+            <span>↩️</span> Annulla
+          </button>
+          <button class="cam-btn" id="btn-save-state" title="Salva configurazione attuale (Ctrl+S)">
+            <span>💾</span> Salva
+          </button>
           <button class="cam-btn photo-btn" id="btn-download-photo" title="Scarica foto PNG della vista 3D attiva">
             <span>📷</span> Scarica Foto
           </button>
@@ -74,14 +80,20 @@
       <aside class="config-panel" id="config-panel">
         <div class="saved-sync-bar">
           <span class="saved-indicator" id="saved-indicator">💾 Scelte salvate automaticamente</span>
-          <button type="button" class="copy-room-btn" id="btn-copy-other-room" title="Copia pavimenti, rivestimenti e mobile dall'altro bagno">
-            📋 Copia dall'altro bagno
-          </button>
+          <div class="saved-actions-group">
+            <button type="button" class="copy-room-btn" id="btn-undo-panel" disabled title="Annulla ultima modifica (Ctrl+Z)">
+              ↩️ Annulla
+            </button>
+            <button type="button" class="copy-room-btn" id="btn-copy-other-room" title="Copia pavimenti, rivestimenti e mobile dall'altro bagno">
+              📋 Copia altro bagno
+            </button>
+          </div>
         </div>
         <div class="panel-tabs" role="tablist">
           <button class="tab-btn active" data-tab="floors" role="tab">Pavimento</button>
           <button class="tab-btn" data-tab="walls" role="tab">Rivestimenti</button>
           <button class="tab-btn" data-tab="vanity" role="tab">Mobile Bagno</button>
+          <button class="tab-btn" data-tab="shower" role="tab">Piatto Doccia</button>
         </div>
 
         <!-- TAB PAVIMENTO -->
@@ -216,31 +228,6 @@
                 ↺ Reset
               </button>
             </div>
-
-            <div class="accent-toggle-row" style="margin-top:7px">
-              <div>
-                <div class="accent-toggle-title" id="shower-presence-title">🚿 Box Doccia 80×80</div>
-                <div class="accent-toggle-sub" id="shower-presence-sub">Ancorato a parete · trascinabile</div>
-              </div>
-              <button type="button" class="pill-btn accent-enable-btn" id="btn-toggle-shower-box">
-                Presente
-              </button>
-            </div>
-
-            <div id="shower-size-wrap" style="margin-top:8px">
-              <label class="sub-label">Formato Piatto Doccia (cm)</label>
-              <div class="pill-group" id="shower-size-group">
-                <button type="button" class="pill-btn active" data-shsize="80x80" title="Piatto doccia quadrato 80×80 cm">
-                  80×80
-                </button>
-                <button type="button" class="pill-btn" data-shsize="120x70" title="Piatto doccia rettangolare 70×120 cm (120 lungo la parete × 70 profondità)">
-                  70×120 (Lungo)
-                </button>
-                <button type="button" class="pill-btn" data-shsize="70x120" title="Piatto doccia rettangolare 70×120 cm (70 lungo la parete × 120 profondità)">
-                  70×120 (Ruotato)
-                </button>
-              </div>
-            </div>
           </div>
 
           <div class="section-header">
@@ -260,6 +247,85 @@
               <button class="pill-btn active" data-metal="chrome">Cromo</button>
               <button class="pill-btn" data-metal="black">Nero Opaco</button>
               <button class="pill-btn" data-metal="brass">Ottone</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB PIATTO DOCCIA -->
+        <section class="tab-content" id="tab-shower">
+          <div class="section-header">
+            <h2>Piatto Doccia & Box Cristallo</h2>
+            <span class="badge-dim" id="shower-wall-badge">80×80 cm</span>
+          </div>
+
+          <div class="wall-top-options">
+            <div class="accent-toggle-row">
+              <div>
+                <div class="accent-toggle-title" id="shower-presence-title">🚿 Box Doccia 80×80</div>
+                <div class="accent-toggle-sub" id="shower-presence-sub">Ancorato a parete · trascinabile in 3D e 2D</div>
+              </div>
+              <button type="button" class="pill-btn accent-enable-btn" id="btn-toggle-shower-box">
+                Presente ✓
+              </button>
+            </div>
+
+            <div class="accent-toggle-row" style="margin-top:8px">
+              <div>
+                <div class="accent-toggle-title">✋ Sposta Piatto Doccia</div>
+                <div class="accent-toggle-sub">Seleziona e trascina il box doccia lungo le pareti</div>
+              </div>
+              <button type="button" class="pill-btn accent-enable-btn" id="btn-move-shower-quick" title="Attiva modalità spostamento per il piatto doccia">
+                ✋ Sposta
+              </button>
+            </div>
+          </div>
+
+          <div id="shower-size-wrap" class="sub-section">
+            <label class="sub-label">Formato e Orientamento Piatto Doccia (cm)</label>
+            <div class="shower-tray-cards" id="shower-size-group">
+              <button type="button" class="shower-tray-card pill-btn active" data-shsize="80x80" title="Piatto doccia quadrato 80×80 cm">
+                <div class="tray-preview-box">
+                  <span class="tray-shape tray-80x80"><i class="tray-drain"></i></span>
+                </div>
+                <div class="tray-card-info">
+                  <span class="tray-card-title">80×80 cm · Quadrato</span>
+                  <span class="tray-card-sub">80 cm lungo parete × 80 cm profondità</span>
+                </div>
+              </button>
+
+              <button type="button" class="shower-tray-card pill-btn" data-shsize="120x70" title="Piatto doccia rettangolare 70×120 cm (120 lungo la parete × 70 profondità)">
+                <div class="tray-preview-box">
+                  <span class="tray-shape tray-120x70"><i class="tray-drain"></i></span>
+                </div>
+                <div class="tray-card-info">
+                  <span class="tray-card-title">70×120 cm · Lungo Parete</span>
+                  <span class="tray-card-sub">120 cm lungo parete × 70 cm profondità</span>
+                </div>
+              </button>
+
+              <button type="button" class="shower-tray-card pill-btn" data-shsize="70x120" title="Piatto doccia rettangolare 70×120 cm (70 lungo la parete × 120 profondità)">
+                <div class="tray-preview-box">
+                  <span class="tray-shape tray-70x120"><i class="tray-drain"></i></span>
+                </div>
+                <div class="tray-card-info">
+                  <span class="tray-card-title">70×120 cm · Ruotato</span>
+                  <span class="tray-card-sub">70 cm lungo parete × 120 cm profondità</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <div class="sub-section" id="shower-tray-finish-section">
+            <label class="sub-label">Materiale & Colore Piatto Doccia (Resina Effetto Pietra)</label>
+            <div class="color-dots" id="shower-tray-finishes"></div>
+          </div>
+
+          <div class="sub-section" id="shower-tab-height-wrap">
+            <label class="sub-label">Altezza Rivestimento Pareti in Doccia</label>
+            <div class="pill-group" id="shower-tab-height-group">
+              <button type="button" class="pill-btn active" data-sheight="fixed-210">🔒 Fissa 210</button>
+              <button type="button" class="pill-btn" data-sheight="fixed-270">🔒 Fissa 270</button>
+              <button type="button" class="pill-btn" data-sheight="follow">Segue pareti</button>
             </div>
           </div>
         </section>
