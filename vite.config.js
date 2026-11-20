@@ -55,6 +55,36 @@ const mediaProxies = {
     secure: false,
     rewrite: (path) => path.replace(/^\/serenissima-media/, ''),
   },
+  '/delconca-media': {
+    target: 'https://www.delconca.com',
+    changeOrigin: true,
+    secure: false,
+    rewrite: (path) => path.replace(/^\/delconca-media/, ''),
+  },
+  '/demaio-media': {
+    target: 'https://francescodemaio.it',
+    changeOrigin: true,
+    secure: false,
+    rewrite: (path) => path.replace(/^\/demaio-media/, ''),
+  },
+  '/fioranese-media': {
+    target: 'https://www.fioranese.it',
+    changeOrigin: true,
+    secure: false,
+    rewrite: (path) => path.replace(/^\/fioranese-media/, ''),
+  },
+  '/tecnolam-media': {
+    target: 'https://technolam.it',
+    changeOrigin: true,
+    secure: false,
+    rewrite: (path) => path.replace(/^\/tecnolam-media/, ''),
+  },
+  '/atlas-media': {
+    target: 'https://storage.atlasplan.com',
+    changeOrigin: true,
+    secure: false,
+    rewrite: (path) => path.replace(/^\/atlas-media/, ''),
+  },
   '/iperceramica-media': {
     target: 'https://cdn.iperceramica.it',
     changeOrigin: true,

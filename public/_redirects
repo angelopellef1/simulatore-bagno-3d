@@ -7,5 +7,10 @@
 /fap-media/*          https://www.fapceramiche.com/:splat                       200!
 /bardelli-media/*     https://cdn.shopify.com/:splat                            200!
 /serenissima-media/*  https://www.serenissima.re.it/:splat                      200!
+/delconca-media/*     https://www.delconca.com/:splat                           200!
+/demaio-media/*       https://francescodemaio.it/:splat                         200!
+/fioranese-media/*    https://www.fioranese.it/:splat                           200!
+/tecnolam-media/*     https://technolam.it/:splat                               200!
+/atlas-media/*        https://storage.atlasplan.com/:splat                      200!
 /iperceramica-media/* https://cdn.iperceramica.it/:splat                        200!
 /deghi-media/*        https://assets.deghi.it/:splat                            200!

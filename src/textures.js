@@ -651,6 +651,11 @@ const BRAND_MEDIA_PREFIX = {
   fap: '/fap-media',
   bardelli: '/bardelli-media',
   serenissima: '/serenissima-media',
+  delconca: '/delconca-media',
+  demaio: '/demaio-media',
+  fioranese: '/fioranese-media',
+  tecnolam: '/tecnolam-media',
+  atlas: '/atlas-media',
 };
 
 export function getCatalogItemKey(item) {

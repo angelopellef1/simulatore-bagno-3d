@@ -59,6 +59,9 @@
           <button class="cam-btn tool-btn" id="btn-move-fixtures-mode" title="Attiva per spostare Mobile Bagno, Box Doccia, WC o Bidet trascinandoli lungo le pareti">
             <span>✋</span> Sposta Arredi
           </button>
+          <button class="cam-btn" id="btn-grid" title="Mostra / Nascondi griglia 10 cm su pavimento e pareti (G)">
+            <span>📏</span> Griglia 10 cm
+          </button>
           <button class="cam-btn" id="btn-undo" disabled title="Annulla ultima modifica (Ctrl+Z)">
             <span>↩️</span> Annulla
           </button>
@@ -165,7 +168,21 @@
 
           <!-- PANE 1: PARETI GENERALI -->
           <div id="wall-zone-main">
+            <div class="wall-top-options">
+              <div class="accent-toggle-row">
+                <div>
+                  <div class="accent-toggle-title">✂️ Rivestimento diviso a 120 cm</div>
+                  <div class="accent-toggle-sub" id="wall-split-status">Scegli un rivestimento diverso sotto e sopra i 120 cm</div>
+                </div>
+                <button type="button" class="pill-btn accent-enable-btn" id="btn-toggle-wall-split">Attiva</button>
+              </div>
+              <div class="pill-group" id="wall-split-target-group" style="display:none; margin-top:8px">
+                <button type="button" class="pill-btn active" data-split="lower">⬇ Sotto 120 cm</button>
+                <button type="button" class="pill-btn" data-split="upper">⬆ Sopra 120 cm</button>
+              </div>
+            </div>
             <div id="wall-catalog-mount"></div>
+            <div id="wall-upper-catalog-mount" style="display:none"></div>
           </div>
 
           <!-- PANE 2: SINGOLA PARETE (CLICCA SU PARETE 3D) -->

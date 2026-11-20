@@ -57,6 +57,36 @@
   force = true
 
 [[redirects]]
+  from = "/delconca-media/*"
+  to = "https://www.delconca.com/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/demaio-media/*"
+  to = "https://francescodemaio.it/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/fioranese-media/*"
+  to = "https://www.fioranese.it/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/tecnolam-media/*"
+  to = "https://technolam.it/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/atlas-media/*"
+  to = "https://storage.atlasplan.com/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/iperceramica-media/*"
   to = "https://cdn.iperceramica.it/:splat"
   status = 200

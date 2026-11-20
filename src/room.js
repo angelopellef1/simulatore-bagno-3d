@@ -78,12 +78,22 @@ export class BathroomRoom {
     this.root = new THREE.Group();
     this.scene.add(this.root);
 
+    this.gridUniform = { value: 0 };
+    this.wallSplitEnabled = false;
+    this.wallSplitHeight = 1.2;
+
     this.floorMaterial = new THREE.MeshStandardMaterial({
       roughness: 0.5,
       metalness: 0.04,
     });
 
     this.wallTileMaterial = new THREE.MeshStandardMaterial({
+      roughness: 0.25,
+      metalness: 0.04,
+    });
+
+    // Rivestimento superiore (sopra 120 cm) quando la divisione 120 è attiva
+    this.wallUpperMaterial = new THREE.MeshStandardMaterial({
       roughness: 0.25,
       metalness: 0.04,
     });
@@ -98,6 +108,16 @@ export class BathroomRoom {
       roughness: 0.85,
       metalness: 0.0,
     });
+
+    for (const m of [
+      this.floorMaterial,
+      this.wallTileMaterial,
+      this.wallUpperMaterial,
+      this.vanityWallMaterial,
+      this.wallPaintMaterial,
+    ]) {
+      this.applyGridShader(m);
+    }
 
     this.outerShellMaterial = new THREE.MeshStandardMaterial({
       color: 0xdad5cc,
@@ -194,6 +214,52 @@ export class BathroomRoom {
     this.buildSanitaryAndRadiator();
     this.buildRoomLights();
     this.rebuildRoomArchitecture();
+  }
+
+  applyGridShader(mat) {
+    const uniform = this.gridUniform;
+    mat.customProgramCacheKey = () => 'room-grid-v1';
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uGrid = uniform;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vGridWP;')
+        .replace(
+          '#include <begin_vertex>',
+          '#include <begin_vertex>\nvGridWP = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+varying vec3 vGridWP;
+uniform float uGrid;
+float gridLine(float v, float step, float w) {
+  float d = abs(fract(v / step + 0.5) - 0.5) * step;
+  return 1.0 - smoothstep(w, w * 1.8, d);
+}`
+        )
+        .replace(
+          '#include <dithering_fragment>',
+          `#include <dithering_fragment>
+if (uGrid > 0.5) {
+  vec3 gn = abs(normalize(cross(dFdx(vGridWP), dFdy(vGridWP))));
+  vec2 g2 = gn.y > 0.7 ? vGridWP.xz : (gn.x > gn.z ? vGridWP.zy : vGridWP.xy);
+  float dist = length(cameraPosition - vGridWP);
+  float lw = 0.0014 + dist * 0.0007;
+  float minor = max(gridLine(g2.x, 0.1, lw), gridLine(g2.y, 0.1, lw));
+  float major = max(gridLine(g2.x, 0.5, lw * 1.9), gridLine(g2.y, 0.5, lw * 1.9));
+  vec3 minorCol = vec3(0.05, 0.55, 0.95);
+  vec3 majorCol = vec3(0.95, 0.25, 0.2);
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, minorCol, minor * 0.55);
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, majorCol, major * 0.85);
+}`
+        );
+    };
+    mat.needsUpdate = true;
+  }
+
+  setGridEnabled(enabled) {
+    this.gridUniform.value = enabled ? 1 : 0;
   }
 
   getDefaultFixturesForRoom(type = this.roomType) {
@@ -794,15 +860,50 @@ export class BathroomRoom {
           ? this.vanityWallMaterial
           : customWallMat || this.wallTileMaterial;
 
-        // Lower tiled band
+        // Lower tiled band (con eventuale divisione: rivestimento diverso sotto/sopra 120 cm)
         const t0 = patch.y0;
         const t1 = Math.min(patch.y1, tileTop);
+        const splitY = this.wallSplitHeight;
+        const doSplit =
+          this.wallSplitEnabled &&
+          activeTileMat === this.wallTileMaterial &&
+          t0 < splitY - 0.001 &&
+          t1 > splitY + 0.001;
         if (t1 > t0 + 0.001) {
-          const geo = buildQuadGeometry(def.p1, def.p2, patch.s0, patch.s1, t0, t1, uRunning, false);
-          const mesh = new THREE.Mesh(geo, activeTileMat);
-          mesh.receiveShadow = true;
-          mesh.userData = { isWall: true, wallId: def.id, wallLabel: def.label };
-          group.add(mesh);
+          const bands = doSplit
+            ? [
+                [t0, splitY, this.wallTileMaterial],
+                [splitY, t1, this.wallUpperMaterial],
+              ]
+            : this.wallSplitEnabled &&
+                activeTileMat === this.wallTileMaterial &&
+                t0 >= splitY - 0.001
+              ? [[t0, t1, this.wallUpperMaterial]]
+              : [[t0, t1, activeTileMat]];
+          for (const [b0, b1, bMat] of bands) {
+            const geo = buildQuadGeometry(def.p1, def.p2, patch.s0, patch.s1, b0, b1, uRunning, false);
+            const mesh = new THREE.Mesh(geo, bMat);
+            mesh.receiveShadow = true;
+            mesh.userData = { isWall: true, wallId: def.id, wallLabel: def.label };
+            group.add(mesh);
+          }
+          if (doSplit) {
+            const segLen = patch.s1 - patch.s0;
+            const sMid = (patch.s0 + patch.s1) * 0.5;
+            const ux = dx / len;
+            const uz = dz / len;
+            const splitTrim = new THREE.Mesh(
+              new THREE.BoxGeometry(segLen, 0.012, 0.012),
+              this.metalMaterial
+            );
+            splitTrim.position.set(
+              def.p1.x + ux * sMid + nx * 0.004,
+              splitY,
+              def.p1.z + uz * sMid + nz * 0.004
+            );
+            splitTrim.rotation.y = -Math.atan2(dz, dx);
+            group.add(splitTrim);
+          }
         }
 
         // Vertical jolly trim profile along the vanity accent zone border(s) OR shower height step!
@@ -1484,6 +1585,25 @@ export class BathroomRoom {
     this.wallTileMaterial.needsUpdate = true;
   }
 
+  applyUpperWallBundle(bundle) {
+    if (bundle.map) bundle.map.updateMatrix();
+    if (bundle.bumpMap) bundle.bumpMap.updateMatrix();
+    this.wallUpperMaterial.map = bundle.map;
+    this.wallUpperMaterial.bumpMap = bundle.bumpMap;
+    this.wallUpperMaterial.bumpScale = bundle.bumpScale ?? 0.01;
+    this.wallUpperMaterial.roughness = bundle.roughness ?? 0.35;
+    this.wallUpperMaterial.metalness = bundle.metalness ?? 0.04;
+    this.wallUpperMaterial.needsUpdate = true;
+  }
+
+  setWallSplitEnabled(enabled) {
+    const next = Boolean(enabled);
+    if (this.wallSplitEnabled !== next) {
+      this.wallSplitEnabled = next;
+      this.rebuildWalls();
+    }
+  }
+
   applyVanityWallBundle(bundle) {
     if (bundle.map) bundle.map.updateMatrix();
     if (bundle.bumpMap) bundle.bumpMap.updateMatrix();
@@ -1539,6 +1659,7 @@ export class BathroomRoom {
         roughness: 0.35,
         metalness: 0.04,
       });
+      this.applyGridShader(mat);
       this.perWallMaterials.set(wallId, mat);
     }
     mat.map = bundle.map;

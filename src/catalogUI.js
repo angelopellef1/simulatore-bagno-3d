@@ -1,10 +1,15 @@
 import { getCatalogItemKey, getCatalogItemThumbUrl } from './textures.js';
 
 const BRAND_OPTIONS = [
-  { id: 'ALL', label: 'Tutti i 9 cataloghi', short: 'Tutti' },
+  { id: 'ALL', label: 'Tutti i 14 cataloghi', short: 'Tutti' },
+  { id: 'atlas', label: 'Atlas Concorde (Marvel, Boost, Kone, Nid, Atlas Plan)', short: 'Atlas Concorde' },
+  { id: 'fioranese', label: 'Fioranese Ceramica', short: 'Fioranese' },
+  { id: 'caesar', label: 'Ceramica Caesar', short: 'Caesar' },
+  { id: 'delconca', label: 'Ceramica Del Conca (Faetano)', short: 'Del Conca' },
+  { id: 'demaio', label: 'Francesco De Maio (Maioliche Vietri & Gio Ponti)', short: 'De Maio' },
+  { id: 'tecnolam', label: 'Technolam (Lastre & Superfici Ceramiche)', short: 'Technolam' },
   { id: 'florim', label: 'Florim (Rex, Casa dolce casa, Cerim, CEDIT, Stone)', short: 'Florim' },
   { id: 'mirage', label: 'Mirage Ceramiche', short: 'Mirage' },
-  { id: 'caesar', label: 'Caesar Ceramiche', short: 'Caesar' },
   { id: 'fap', label: 'FAP Ceramiche', short: 'FAP' },
   { id: 'bardelli', label: 'Gruppo Bardelli (Bardelli, Vogue, Appiani)', short: 'Bardelli' },
   { id: 'serenissima', label: 'Serenissima Ceramiche', short: 'Serenissima' },
@@ -31,10 +36,15 @@ const BRAND_LABELS = {
   armonie: 'Armonie',
   florim: 'Florim',
   mirage: 'Mirage',
-  caesar: 'Caesar Ceramiche',
+  caesar: 'Ceramica Caesar',
   fap: 'FAP Ceramiche',
   bardelli: 'Gruppo Bardelli',
   serenissima: 'Serenissima',
+  delconca: 'Del Conca',
+  demaio: 'Francesco De Maio',
+  fioranese: 'Fioranese',
+  tecnolam: 'Technolam',
+  atlas: 'Atlas Concorde',
 };
 
 const PAGE_STEP = 24;

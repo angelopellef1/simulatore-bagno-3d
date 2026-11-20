@@ -74,6 +74,8 @@ function createDefaultRoomConfig(roomKey = 'ground') {
   return {
     floor: { key: `preset:${FLOOR_PRESETS[0].id}`, rotated90: false },
     wall: { key: `preset:${WALL_PRESETS[0].id}`, rotated90: false },
+    wallSplitEnabled: false,
+    wallUpper: { key: `preset:${WALL_PRESETS[1].id}`, rotated90: false },
     perWallSpecs: {},
     tileHeightMode: 'door',
     showerTileHeightMode: 'fixed-210',
@@ -104,6 +106,7 @@ function loadAppState() {
         activeRoom: parsed.activeRoom === 'first' ? 'first' : 'ground',
         lightingMode: parsed.lightingMode === 'night' ? 'night' : 'day',
         exposure: Number.isFinite(parsed.exposure) ? parsed.exposure : 78,
+        gridEnabled: Boolean(parsed.gridEnabled),
         lastModifiedAt: parsed.lastModifiedAt || null,
         lastActionLabel: parsed.lastActionLabel || null,
         rooms: {
@@ -121,6 +124,7 @@ function loadAppState() {
     activeRoom: 'ground',
     lightingMode: 'day',
     exposure: 78,
+    gridEnabled: false,
     lastModifiedAt: null,
     lastActionLabel: null,
     rooms: {
@@ -158,9 +162,11 @@ let preDragSnapshot = null;
 
 let floorSelector = null;
 let wallSelector = null;
+let wallUpperSelector = null;
 let singleWallSelector = null;
 let vanityWallSelector = null;
 let vanityCatalogSelector = null;
+let activeWallSplitTarget = 'lower'; // 'lower' (<120 cm) | 'upper' (>120 cm)
 
 // Interactive 3D tool state
 let wallPaintMode = false;
@@ -175,6 +181,10 @@ function getCurrentRoomState() {
     if (src) {
       base.floor = JSON.parse(JSON.stringify(src.floor));
       base.wall = JSON.parse(JSON.stringify(src.wall));
+      base.wallSplitEnabled = Boolean(src.wallSplitEnabled);
+      base.wallUpper = src.wallUpper
+        ? JSON.parse(JSON.stringify(src.wallUpper))
+        : { key: `preset:${WALL_PRESETS[1].id}`, rotated90: false };
       base.tileHeightMode = src.tileHeightMode;
       base.showerTileHeightMode = src.showerTileHeightMode || 'fixed-210';
       base.paintId = src.paintId;
@@ -308,8 +318,10 @@ function saveAppState(actionLabel = null) {
 // Initial fallback materials while catalog JSON loads
 room.setFloorPreset(FLOOR_PRESETS[0]);
 room.setWallPreset(WALL_PRESETS[0]);
+room.applyUpperWallBundle(textureLib.getPresetBundle(WALL_PRESETS[1]));
 room.vanityWallMaterial.map = textureLib.getPresetBundle(WALL_PRESETS[1]).map;
 room.vanityWallMaterial.bumpMap = textureLib.getPresetBundle(WALL_PRESETS[1]).bumpMap;
+room.setGridEnabled(Boolean(appState.gridEnabled));
 
 // --- CAMERA & NAVIGATION STATE ---
 const navState = {
@@ -486,6 +498,8 @@ window.addEventListener('keydown', (e) => {
     applyCameraPreset('orbit');
   } else if (e.key === '5' && appState.activeRoom === 'first') {
     applyCameraPreset('shower');
+  } else if (e.key.toLowerCase() === 'g' && !e.ctrlKey && !e.metaKey) {
+    document.getElementById('btn-grid')?.click();
   }
 });
 
@@ -937,6 +951,42 @@ function syncVanityWallStatusUI() {
   }
 }
 
+function syncWallSplitUI() {
+  const on = Boolean(room.wallSplitEnabled);
+  const btn = document.getElementById('btn-toggle-wall-split');
+  const lbl = document.getElementById('wall-split-status');
+  const targetGroup = document.getElementById('wall-split-target-group');
+  const lowerMount = document.getElementById('wall-catalog-mount');
+  const upperMount = document.getElementById('wall-upper-catalog-mount');
+
+  if (btn) {
+    btn.textContent = on ? 'Attivo ✓' : 'Attiva';
+    btn.classList.toggle('active', on);
+  }
+  if (lbl) {
+    lbl.textContent = on
+      ? activeWallSplitTarget === 'upper'
+        ? 'Stai scegliendo il rivestimento SOPRA i 120 cm'
+        : 'Stai scegliendo il rivestimento SOTTO i 120 cm'
+      : 'Scegli un rivestimento diverso sotto e sopra i 120 cm';
+  }
+  if (targetGroup) {
+    targetGroup.style.display = on ? 'flex' : 'none';
+    targetGroup.querySelectorAll('.pill-btn').forEach((b) => {
+      b.classList.toggle('active', b.dataset.split === activeWallSplitTarget);
+    });
+  }
+  if (lowerMount && upperMount) {
+    if (!on || activeWallSplitTarget === 'lower') {
+      lowerMount.style.display = 'block';
+      upperMount.style.display = 'none';
+    } else {
+      lowerMount.style.display = 'none';
+      upperMount.style.display = 'block';
+    }
+  }
+}
+
 function syncShowerPresenceUI() {
   const on = Boolean(room.showerEnabled);
   const sz = room.showerSize || '80x80';
@@ -1112,6 +1162,12 @@ async function applyRoomConfigToSceneAndUI(roomKey, { resetCamera = true } = {})
   if (wallSelector && cfg.wall) {
     await wallSelector.applySelectionSpec(cfg.wall, { triggerApply: true });
   }
+  if (wallUpperSelector) {
+    const upperSpec = cfg.wallUpper || { key: `preset:${WALL_PRESETS[1].id}`, rotated90: false };
+    await wallUpperSelector.applySelectionSpec(upperSpec, { triggerApply: true });
+  }
+  room.setWallSplitEnabled(Boolean(cfg.wallSplitEnabled));
+  syncWallSplitUI();
   if (vanityWallSelector && cfg.vanityWall) {
     await vanityWallSelector.applySelectionSpec(cfg.vanityWall, {
       triggerApply: Boolean(cfg.vanityWallEnabled),
@@ -1163,6 +1219,23 @@ function initUI() {
       applyRoomConfigToSceneAndUI(targetRoom, { resetCamera: true });
     });
   });
+
+  // 10 cm Grid overlay button
+  const btnGrid = document.getElementById('btn-grid');
+  if (btnGrid) {
+    btnGrid.classList.toggle('active', Boolean(appState.gridEnabled));
+    btnGrid.addEventListener('click', () => {
+      appState.gridEnabled = !appState.gridEnabled;
+      room.setGridEnabled(appState.gridEnabled);
+      btnGrid.classList.toggle('active', appState.gridEnabled);
+      saveAppState();
+      showToast(
+        appState.gridEnabled
+          ? '📏 Griglia 10 cm attiva su pavimento e pareti (linee rosse ogni 50 cm)'
+          : '📏 Griglia 10 cm disattivata'
+      );
+    });
+  }
 
   // Undo & Save buttons (top bar + side panel)
   document.getElementById('btn-undo')?.addEventListener('click', () => {
@@ -1593,16 +1666,60 @@ function initUI() {
     });
   });
 
-  // Load all 9 ceramic catalogs + Iperceramica Avivo & Deghi bathroom furniture catalogs
+  // Split wall covering below 120 cm / above 120 cm
+  document.getElementById('btn-toggle-wall-split')?.addEventListener('click', () => {
+    const cfg = getCurrentRoomState();
+    const next = !room.wallSplitEnabled;
+    recordUndoSnapshot(next ? 'Divisione parete a 120 cm' : 'Parete unica');
+    cfg.wallSplitEnabled = next;
+    // If tileHeightMode was 'half' (120 cm), promote to 'door' (210 cm) so the >120 cm band is visible!
+    if (next && cfg.tileHeightMode === 'half') {
+      cfg.tileHeightMode = 'door';
+      room.setTileHeightMode('door');
+      document.querySelectorAll('#tile-height-group .pill-btn').forEach((b) => {
+        b.classList.toggle('active', b.dataset.height === 'door');
+      });
+    }
+    if (next && wallUpperSelector?.currentBaseBundle) {
+      room.applyUpperWallBundle(
+        textureLib.getOrientedBundle(
+          wallUpperSelector.currentBaseBundle,
+          wallUpperSelector.rotated90
+        )
+      );
+    }
+    room.setWallSplitEnabled(next);
+    syncWallSplitUI();
+    saveAppState(next ? 'Rivestimento diviso a 120 cm' : 'Rivestimento unico');
+    showToast(
+      next
+        ? '✂️ Divisione a 120 cm attiva: scegli piastrelle diverse Sotto 120 cm e Sopra 120 cm'
+        : '✂️ Divisione a 120 cm disattivata'
+    );
+  });
+
+  document.querySelectorAll('#wall-split-target-group .pill-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      activeWallSplitTarget = btn.dataset.split === 'upper' ? 'upper' : 'lower';
+      syncWallSplitUI();
+    });
+  });
+
+  // Load all 14 ceramic catalogs + Iperceramica Avivo & Deghi bathroom furniture catalogs
   const fetchCat = (url) =>
     fetch(url)
       .then((r) => (r.ok ? r.json() : { items: [] }))
       .catch(() => ({ items: [] }));
 
   Promise.all([
+    fetchCat('/atlas-catalog.json'),
+    fetchCat('/fioranese-catalog.json'),
+    fetchCat('/caesar-catalog.json'),
+    fetchCat('/delconca-catalog.json'),
+    fetchCat('/demaio-catalog.json'),
+    fetchCat('/tecnolam-catalog.json'),
     fetchCat('/florim-catalog.json'),
     fetchCat('/mirage-catalog.json'),
-    fetchCat('/caesar-catalog.json'),
     fetchCat('/fap-catalog.json'),
     fetchCat('/bardelli-catalog.json'),
     fetchCat('/serenissima-catalog.json'),
@@ -1614,9 +1731,14 @@ function initUI() {
   ])
     .then(
       async ([
+        atlasData,
+        fioraneseData,
+        caesarData,
+        delconcaData,
+        demaioData,
+        tecnolamData,
         florimData,
         mirageData,
-        caesarData,
         fapData,
         bardelliData,
         serenissimaData,
@@ -1626,9 +1748,14 @@ function initUI() {
         avivoData,
         deghiData,
       ]) => {
+        const atlasItems = Array.isArray(atlasData.items) ? atlasData.items : [];
+        const fioraneseItems = Array.isArray(fioraneseData.items) ? fioraneseData.items : [];
+        const caesarItems = Array.isArray(caesarData.items) ? caesarData.items : [];
+        const delconcaItems = Array.isArray(delconcaData.items) ? delconcaData.items : [];
+        const demaioItems = Array.isArray(demaioData.items) ? demaioData.items : [];
+        const tecnolamItems = Array.isArray(tecnolamData.items) ? tecnolamData.items : [];
         const florimItems = Array.isArray(florimData.items) ? florimData.items : [];
         const mirageItems = Array.isArray(mirageData.items) ? mirageData.items : [];
-        const caesarItems = Array.isArray(caesarData.items) ? caesarData.items : [];
         const fapItems = Array.isArray(fapData.items) ? fapData.items : [];
         const bardelliItems = Array.isArray(bardelliData.items) ? bardelliData.items : [];
         const serenissimaItems = Array.isArray(serenissimaData.items) ? serenissimaData.items : [];
@@ -1674,9 +1801,14 @@ function initUI() {
         }
 
         const items = [
+          ...atlasItems,
+          ...fioraneseItems,
+          ...caesarItems,
+          ...delconcaItems,
+          ...demaioItems,
+          ...tecnolamItems,
           ...florimItems,
           ...mirageItems,
-          ...caesarItems,
           ...fapItems,
           ...bardelliItems,
           ...serenissimaItems,
@@ -1687,9 +1819,14 @@ function initUI() {
         window.__TECNOMAT_CATALOG__ = tmItems;
         window.__ALL_CATALOGS__ = {
           total: items.length,
+          atlas: atlasItems.length,
+          fioranese: fioraneseItems.length,
+          caesar: caesarItems.length,
+          delconca: delconcaItems.length,
+          demaio: demaioItems.length,
+          tecnolam: tecnolamItems.length,
           florim: florimItems.length,
           mirage: mirageItems.length,
-          caesar: caesarItems.length,
           fap: fapItems.length,
           bardelli: bardelliItems.length,
           serenissima: serenissimaItems.length,
@@ -1745,10 +1882,35 @@ function initUI() {
         onSelectionChange: (spec) => {
           const cfg = getCurrentRoomState();
           if (!isRestoringRoom && JSON.stringify(cfg.wall) !== JSON.stringify(spec)) {
-            recordUndoSnapshot('Rivestimento pareti');
+            recordUndoSnapshot(
+              room.wallSplitEnabled ? 'Rivestimento sotto 120 cm' : 'Rivestimento pareti'
+            );
           }
           cfg.wall = spec;
-          saveAppState('Rivestimento pareti aggiornato');
+          saveAppState(
+            room.wallSplitEnabled
+              ? 'Rivestimento sotto 120 cm aggiornato'
+              : 'Rivestimento pareti aggiornato'
+          );
+        },
+      });
+
+      wallUpperSelector = new CatalogSelector({
+        mountEl: document.getElementById('wall-upper-catalog-mount'),
+        catalogItems: items,
+        presets: WALL_PRESETS,
+        textureLib,
+        initialPreset: WALL_PRESETS[1],
+        onApplyBundle: (bundle) => {
+          room.applyUpperWallBundle(bundle);
+        },
+        onSelectionChange: (spec) => {
+          const cfg = getCurrentRoomState();
+          if (!isRestoringRoom && JSON.stringify(cfg.wallUpper) !== JSON.stringify(spec)) {
+            recordUndoSnapshot('Rivestimento sopra 120 cm');
+          }
+          cfg.wallUpper = spec;
+          saveAppState('Rivestimento sopra 120 cm aggiornato');
         },
       });
 
