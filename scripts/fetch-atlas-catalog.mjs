@@ -105,6 +105,73 @@ async function main() {
       .replace(/[^A-Z0-9]+/g, '-')
       .replace(/^-|-$/g, '');
 
+    if (surf.slug === 'boost-natural-kaolin') {
+      const kaolin3dVariants = [
+        {
+          sku: 'ATL-BOOST-NATURAL-KAOLIN-3D-WAVE-50X120',
+          title: 'Boost Natural — Kaolin 3D Wave (Rilievo 3D Matt) 50×120 cm',
+          fullName: 'ATLAS CONCORDE BOOST NATURAL KAOLIN 3D WAVE RILIEVO 3D MATT 50x120 cm',
+          w: 50,
+          l: 120,
+          thick: 8.5,
+          finish: '3D Wave Matt',
+          relief3d: 'wave',
+        },
+        {
+          sku: 'ATL-BOOST-NATURAL-KAOLIN-3D-TEXTURE-50X120',
+          title: 'Boost Natural — Kaolin 3D Texture (Rilievo 3D Matt) 50×120 cm',
+          fullName: 'ATLAS CONCORDE BOOST NATURAL KAOLIN 3D TEXTURE RILIEVO 3D MATT 50x120 cm',
+          w: 50,
+          l: 120,
+          thick: 8.5,
+          finish: '3D Texture Matt',
+          relief3d: 'texture',
+        },
+        {
+          sku: 'ATL-BOOST-NATURAL-KAOLIN-3D-PITCH-50X120',
+          title: 'Boost Natural — Kaolin 3D Pitch (Rilievo 3D Cannettato) 50×120 cm',
+          fullName: 'ATLAS CONCORDE BOOST NATURAL KAOLIN 3D PITCH RILIEVO 3D CANNETTATO 50x120 cm',
+          w: 50,
+          l: 120,
+          thick: 8.5,
+          finish: '3D Pitch Matt',
+          relief3d: 'pitch',
+        },
+        {
+          sku: 'ATL-BOOST-NATURAL-KAOLIN-3D-WAVE-60X120',
+          title: 'Boost Natural — Kaolin 3D (Strutturato 3D Matt) 60×120 cm',
+          fullName: 'ATLAS CONCORDE BOOST NATURAL KAOLIN 3D STRUTTURATO 3D MATT 60x120 cm',
+          w: 60,
+          l: 120,
+          thick: 9,
+          finish: '3D Wave Matt',
+          relief3d: 'wave',
+        },
+      ];
+      for (const v3d of kaolin3dVariants) {
+        items.push({
+          brand: 'atlas',
+          brandLabel: 'Atlas Concorde',
+          sku: v3d.sku,
+          series: 'Boost Natural',
+          title: v3d.title,
+          fullName: v3d.fullName,
+          effect: 'Cemento',
+          color: 'Bianco',
+          w: v3d.w,
+          l: v3d.l,
+          thick: v3d.thick,
+          rect: true,
+          finish: v3d.finish,
+          relief3d: v3d.relief3d,
+          usage: 'Rivestimento 3D',
+          pic: surf.pic,
+          thumbPic: surf.thumbPic,
+          url: surf.prodUrl,
+        });
+      }
+    }
+
     for (const fmt of FORMATS) {
       const finSlug = fmt.finish.split('/')[0].trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
       const sku = `ATL-${codeBase}-${fmt.w}X${fmt.l}-${finSlug}`;
