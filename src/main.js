@@ -109,6 +109,22 @@ function loadAppState() {
         gridEnabled: Boolean(parsed.gridEnabled),
         lastModifiedAt: parsed.lastModifiedAt || null,
         lastActionLabel: parsed.lastActionLabel || null,
+        roomPresets: {
+          ground: Array.isArray(parsed.roomPresets?.ground)
+            ? [
+                parsed.roomPresets.ground[0] || null,
+                parsed.roomPresets.ground[1] || null,
+                parsed.roomPresets.ground[2] || null,
+              ]
+            : [null, null, null],
+          first: Array.isArray(parsed.roomPresets?.first)
+            ? [
+                parsed.roomPresets.first[0] || null,
+                parsed.roomPresets.first[1] || null,
+                parsed.roomPresets.first[2] || null,
+              ]
+            : [null, null, null],
+        },
         rooms: {
           ground: { ...createDefaultRoomConfig('ground'), ...(parsed.rooms?.ground || {}) },
           first: parsed.rooms?.first
@@ -127,6 +143,10 @@ function loadAppState() {
     gridEnabled: false,
     lastModifiedAt: null,
     lastActionLabel: null,
+    roomPresets: {
+      ground: [null, null, null],
+      first: [null, null, null],
+    },
     rooms: {
       ground: createDefaultRoomConfig('ground'),
       first: null,
@@ -310,9 +330,99 @@ function saveAppState(actionLabel = null) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
     updateSavedIndicatorUI();
     syncUndoButtonsUI();
+    syncRoomPresetsUI();
   } catch (err) {
     console.warn('Errore salvataggio localStorage:', err);
   }
+}
+
+function getPresetsForActiveRoom() {
+  if (!appState.roomPresets) {
+    appState.roomPresets = { ground: [null, null, null], first: [null, null, null] };
+  }
+  if (!Array.isArray(appState.roomPresets[appState.activeRoom])) {
+    appState.roomPresets[appState.activeRoom] = [null, null, null];
+  }
+  return appState.roomPresets[appState.activeRoom];
+}
+
+function syncRoomPresetsUI() {
+  const isFirst = appState.activeRoom === 'first';
+  const roomShort = isFirst ? '1°P' : 'PT';
+  const titleEl = document.getElementById('room-presets-title');
+  if (titleEl) {
+    titleEl.textContent = `⭐ Preset Bagno ${roomShort}:`;
+  }
+
+  const presets = getPresetsForActiveRoom();
+  const curJson = JSON.stringify(getCurrentRoomState());
+
+  for (let i = 0; i < 3; i++) {
+    const p = presets[i];
+    const slotEl = document.querySelector(`.preset-slot[data-slot="${i}"]`);
+    const loadBtn = document.querySelector(`.preset-load-btn[data-slot="${i}"]`);
+    const stateEl = document.getElementById(`preset-state-${i}`);
+    if (!slotEl || !stateEl) continue;
+
+    const hasData = Boolean(p && p.config);
+    const isActiveMatch = hasData && JSON.stringify(p.config) === curJson;
+    slotEl.classList.toggle('has-data', hasData);
+    slotEl.classList.toggle('active-preset', isActiveMatch);
+
+    if (hasData) {
+      stateEl.textContent = p.savedAt || 'Salvato';
+      if (loadBtn) {
+        loadBtn.title = `Richiama Preset ${i + 1} (${roomShort}) — salvato alle ${p.savedAt || ''}${p.summary ? `\n${p.summary}` : ''}`;
+      }
+    } else {
+      stateEl.textContent = 'Vuoto';
+      if (loadBtn) {
+        loadBtn.title = `Preset ${i + 1} (${roomShort}) vuoto — clicca per salvare la configurazione attuale`;
+      }
+    }
+  }
+}
+
+function saveRoomPreset(slotIndex) {
+  const presets = getPresetsForActiveRoom();
+  const cfg = JSON.parse(JSON.stringify(getCurrentRoomState()));
+  const savedAt = new Date().toLocaleTimeString('it-IT', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const floorTitle = floorSelector?.activeMeta?.title || '';
+  const wallTitle = wallSelector?.activeMeta?.title || '';
+  const summary = [floorTitle && `Pav: ${floorTitle}`, wallTitle && `Par: ${wallTitle}`]
+    .filter(Boolean)
+    .join(' · ');
+
+  presets[slotIndex] = {
+    name: `Preset ${slotIndex + 1}`,
+    savedAt,
+    summary,
+    config: cfg,
+  };
+
+  const roomLabel = appState.activeRoom === 'first' ? 'Primo Piano' : 'Pianterreno';
+  saveAppState(`Salvato Preset ${slotIndex + 1} (${roomLabel})`);
+  showToast(`⭐ Configurazione salvata in Preset ${slotIndex + 1} (${roomLabel})`);
+}
+
+async function loadRoomPreset(slotIndex) {
+  const presets = getPresetsForActiveRoom();
+  const p = presets[slotIndex];
+  if (!p || !p.config) {
+    // Empty slot: save immediately on click for convenience
+    saveRoomPreset(slotIndex);
+    return;
+  }
+
+  const roomLabel = appState.activeRoom === 'first' ? 'Primo Piano' : 'Pianterreno';
+  recordUndoSnapshot(`Richiamo Preset ${slotIndex + 1}`);
+  appState.rooms[appState.activeRoom] = JSON.parse(JSON.stringify(p.config));
+  await applyRoomConfigToSceneAndUI(appState.activeRoom, { resetCamera: false });
+  saveAppState(`Caricato Preset ${slotIndex + 1} (${roomLabel})`);
+  showToast(`⭐ Preset ${slotIndex + 1} (${roomLabel}) caricato!`);
 }
 
 // Initial fallback materials while catalog JSON loads
@@ -1250,6 +1360,22 @@ function initUI() {
   });
   updateSavedIndicatorUI();
   syncUndoButtonsUI();
+  syncRoomPresetsUI();
+
+  // Per-bathroom 3 quick presets (save & load)
+  document.querySelectorAll('.preset-load-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.dataset.slot);
+      if (idx >= 0 && idx < 3) loadRoomPreset(idx);
+    });
+  });
+  document.querySelectorAll('.preset-save-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = Number(btn.dataset.slot);
+      if (idx >= 0 && idx < 3) saveRoomPreset(idx);
+    });
+  });
 
   // Copy coverings & furniture style from the other bathroom (preserving room's own valid wall placements)
   document.getElementById('btn-copy-other-room')?.addEventListener('click', async () => {
