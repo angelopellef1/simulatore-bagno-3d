@@ -368,6 +368,7 @@ function syncRoomPresetsUI() {
     const isActiveMatch = hasData && JSON.stringify(p.config) === curJson;
     slotEl.classList.toggle('has-data', hasData);
     slotEl.classList.toggle('active-preset', isActiveMatch);
+    if (loadBtn) loadBtn.disabled = !hasData;
 
     if (hasData) {
       stateEl.textContent = p.savedAt || 'Salvato';
@@ -377,7 +378,7 @@ function syncRoomPresetsUI() {
     } else {
       stateEl.textContent = 'Vuoto';
       if (loadBtn) {
-        loadBtn.title = `Preset ${i + 1} (${roomShort}) vuoto — clicca per salvare la configurazione attuale`;
+        loadBtn.title = `Preset ${i + 1} (${roomShort}) vuoto — usa il pulsante Salva`;
       }
     }
   }
@@ -412,8 +413,7 @@ async function loadRoomPreset(slotIndex) {
   const presets = getPresetsForActiveRoom();
   const p = presets[slotIndex];
   if (!p || !p.config) {
-    // Empty slot: save immediately on click for convenience
-    saveRoomPreset(slotIndex);
+    showToast(`⭐ Preset ${slotIndex + 1} vuoto: salva prima la configurazione`);
     return;
   }
 
@@ -565,6 +565,280 @@ function downloadActiveViewPhoto() {
 
   window.__LAST_PHOTO_DOWNLOAD__ = { filename, length: dataUrl.length };
   showToast(`📸 Foto salvata: ${filename}`);
+}
+
+function csvCell(value) {
+  let text = value == null ? '' : String(value);
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function formatCsvNumber(value, decimals = 2) {
+  return Number(value || 0)
+    .toFixed(decimals)
+    .replace('.', ',');
+}
+
+function parsePriceEur(value) {
+  if (typeof value === 'number') return value;
+  const parsed = Number.parseFloat(String(value || '').replace(/\./g, '').replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function findActivePresetLabel(config) {
+  const serialized = JSON.stringify(config);
+  const presets = getPresetsForActiveRoom();
+  const index = presets.findIndex(
+    (preset) => preset?.config && JSON.stringify(preset.config) === serialized
+  );
+  return index >= 0 ? `Preset ${index + 1} — ${presets[index].savedAt || ''}`.trim() : 'Configurazione corrente';
+}
+
+function resolveCoveringSpec(spec) {
+  const selectors = [
+    floorSelector,
+    wallSelector,
+    wallUpperSelector,
+    singleWallSelector,
+    vanityWallSelector,
+  ];
+  for (const selector of selectors) {
+    const item = selector?.byKey?.get(String(spec?.key || ''));
+    if (item) return { item, preset: null };
+  }
+
+  const presetId = String(spec?.key || '').replace(/^preset:/, '');
+  const preset = [...FLOOR_PRESETS, ...WALL_PRESETS].find((entry) => entry.id === presetId);
+  return { item: null, preset: preset || null };
+}
+
+function getCoveringBomAreaGroups(config) {
+  const groups = new Map();
+  const defs = room.getWallDefinitions();
+  let totalWallArea = 0;
+  let tiledWallArea = 0;
+
+  const addArea = (spec, area, wallLabel) => {
+    if (!(area > 0.001)) return;
+    const key = `${spec?.key || 'unknown'}:${spec?.rotated90 ? '90' : '0'}`;
+    const group = groups.get(key) || { spec, area: 0, walls: new Set() };
+    group.area += area;
+    if (wallLabel) group.walls.add(wallLabel);
+    groups.set(key, group);
+  };
+
+  for (const def of defs) {
+    const customSpec = config.perWallSpecs?.[def.id] || null;
+    for (const patch of def.patches) {
+      const patchArea = (patch.s1 - patch.s0) * (patch.y1 - patch.y0);
+      totalWallArea += patchArea;
+
+      const useVanityAccent = Boolean(patch.vanityZone && config.vanityWallEnabled);
+      let tileTop = 2.7;
+      if (patch.showerPatch && config.showerTileHeightMode !== 'follow') {
+        tileTop = config.showerTileHeightMode === 'fixed-270' ? 2.7 : 2.1;
+      } else if (useVanityAccent && config.vanityWallHeightMode === 'full') {
+        tileTop = 2.7;
+      } else if (config.tileHeightMode === 'door') {
+        tileTop = 2.1;
+      } else if (config.tileHeightMode === 'half') {
+        tileTop = 1.2;
+      }
+
+      const t0 = patch.y0;
+      const t1 = Math.min(patch.y1, tileTop);
+      if (t1 <= t0 + 0.001) continue;
+      tiledWallArea += (patch.s1 - patch.s0) * (t1 - t0);
+
+      const baseSpec = useVanityAccent
+        ? config.vanityWall
+        : customSpec || config.wall;
+      const canSplit =
+        config.wallSplitEnabled && !useVanityAccent && !customSpec;
+      if (canSplit) {
+        const splitY = 1.2;
+        addArea(config.wall, (patch.s1 - patch.s0) * Math.max(0, Math.min(t1, splitY) - t0), def.label);
+        addArea(config.wallUpper, (patch.s1 - patch.s0) * Math.max(0, t1 - Math.max(t0, splitY)), def.label);
+      } else {
+        addArea(baseSpec, (patch.s1 - patch.s0) * (t1 - t0), def.label);
+      }
+    }
+  }
+
+  return {
+    groups: [...groups.values()],
+    paintArea: Math.max(0, totalWallArea - tiledWallArea),
+  };
+}
+
+function buildBomRows() {
+  const config = getCurrentRoomState();
+  const roomLabel = appState.activeRoom === 'first' ? 'Primo Piano — 5,55 mq' : 'Pianterreno — 4,68 mq';
+  const presetLabel = findActivePresetLabel(config);
+  const rows = [];
+  const baseRow = {
+    Ambiente: roomLabel,
+    Preset: presetLabel,
+  };
+  const addRow = (row) => rows.push({ ...baseRow, ...row });
+  const floorArea = appState.activeRoom === 'first' ? 5.55 : 4.68;
+
+  const addCoveringRow = (category, spec, netArea, notes) => {
+    const { item, preset } = resolveCoveringSpec(spec);
+    const unitPrice = Number(item?.priceMq) || 0;
+    const tileAreaMq = item?.w && item?.l ? (item.w * item.l) / 10000 : 0;
+    const orderArea = netArea * 1.1;
+    const pieces = tileAreaMq > 0 ? Math.ceil(orderArea / tileAreaMq) : null;
+    addRow({
+      Categoria: category,
+      Voce: item?.title || preset?.name || spec?.key || 'Rivestimento non disponibile',
+      Fornitore: item?.brandLabel || (preset ? 'Texture 3D procedurale' : ''),
+      SKU: item?.sku || preset?.id || '',
+      'Quantità netta': formatCsvNumber(netArea),
+      Unità: 'm²',
+      Sfrido: '10%',
+      'Quantità ordine': formatCsvNumber(orderArea),
+      Formato: item?.w && item?.l ? `${formatCsvNumber(item.w, 1)}×${formatCsvNumber(item.l, 1)} cm` : preset?.subtitle || '',
+      'Finitura / colore': [item?.finish, item?.color].filter(Boolean).join(' · ') || '',
+      'Prezzo unitario': unitPrice > 0 ? formatCsvNumber(unitPrice) : '',
+      'Totale stimato': unitPrice > 0 ? formatCsvNumber(orderArea * unitPrice) : '',
+      URL: item?.url || '',
+      Note: [
+        notes,
+        spec?.rotated90 ? 'posa ruotata 90°' : '',
+        pieces ? `circa ${pieces} piastrelle` : '',
+      ].filter(Boolean).join(' · '),
+    });
+  };
+
+  addCoveringRow('Pavimento', config.floor, floorArea, 'superficie netta di progetto');
+
+  const wallBom = getCoveringBomAreaGroups(config);
+  for (const group of wallBom.groups) {
+    addCoveringRow(
+      'Rivestimento pareti',
+      group.spec,
+      group.area,
+      [...group.walls].join(', ')
+    );
+  }
+
+  const paint = PAINT_COLORS.find((entry) => entry.id === config.paintId) || PAINT_COLORS[0];
+  if (wallBom.paintArea > 0.001) {
+    addRow({
+      Categoria: 'Pittura',
+      Voce: paint.name,
+      SKU: paint.id,
+      'Quantità netta': formatCsvNumber(wallBom.paintArea),
+      Unità: 'm²',
+      Sfrido: '10%',
+      'Quantità ordine': formatCsvNumber(wallBom.paintArea * 1.1),
+      'Finitura / colore': paint.hex,
+      Note: 'area netta sopra i rivestimenti; verificare resa e mano di fondo',
+    });
+  }
+
+  const vanityCatalogItem = vanityCatalogSelector?.byId?.get(config.vanityModelId);
+  const vanityPreset = VANITY_MODELS.find((entry) => entry.id === config.vanityModelId);
+  const vanity = vanityCatalogItem || vanityPreset;
+  const vanityFinish =
+    VANITY_FINISHES.find((entry) => entry.id === config.vanityFinishId) || VANITY_FINISHES[0];
+  const vanityUnitPrice = parsePriceEur(vanity?.price);
+  addRow({
+    Categoria: 'Arredo bagno',
+    Voce: vanity?.title || vanity?.name || config.vanityModelId,
+    Fornitore: vanity?.brandLabel || 'Collezione 3D Atelier',
+    SKU: vanity?.sku || vanity?.id || config.vanityModelId,
+    'Quantità netta': '1',
+    Unità: 'pz',
+    'Quantità ordine': '1',
+    Formato: vanity?.dims || (vanity?.widthCm ? `${vanity.widthCm}×${vanity.depthCm} cm` : ''),
+    'Finitura / colore': vanity?.color || vanityFinish.name,
+    'Prezzo unitario': vanityUnitPrice != null ? formatCsvNumber(vanityUnitPrice) : '',
+    'Totale stimato': vanityUnitPrice != null ? formatCsvNumber(vanityUnitPrice) : '',
+    URL: vanity?.url || '',
+  });
+
+  const trayFinish =
+    SHOWER_TRAY_FINISHES.find((entry) => entry.id === config.showerTrayFinishId) ||
+    SHOWER_TRAY_FINISHES[0];
+  if (config.showerEnabled) {
+    const shower = room.getShowerDimensions(config.showerSize);
+    addRow({
+      Categoria: 'Piatto doccia',
+      Voce: `Piatto doccia ${shower.label} cm`,
+      'Quantità netta': '1',
+      Unità: 'pz',
+      'Quantità ordine': '1',
+      Formato: `${shower.label} cm`,
+      'Finitura / colore': trayFinish.name,
+    });
+  }
+
+  addRow({
+    Categoria: 'Sanitari',
+    Voce: 'WC sospeso',
+    'Quantità netta': '1',
+    Unità: 'pz',
+    'Quantità ordine': '1',
+  });
+  addRow({
+    Categoria: 'Sanitari',
+    Voce: 'Bidet sospeso',
+    'Quantità netta': '1',
+    Unità: 'pz',
+    'Quantità ordine': '1',
+  });
+  addRow({
+    Categoria: 'Accessori',
+    Voce: 'Set rubinetteria lavabo, bidet e doccia',
+    'Quantità netta': '1',
+    Unità: 'set',
+    'Quantità ordine': '1',
+    'Finitura / colore': config.metalFinish === 'chrome' ? 'Cromo' : config.metalFinish,
+    Note: 'verificare soffione, miscelatori e installazione incasso',
+  });
+
+  return rows;
+}
+
+function downloadBomCsv() {
+  const rows = buildBomRows();
+  const headers = [
+    'Ambiente',
+    'Preset',
+    'Categoria',
+    'Voce',
+    'Fornitore',
+    'SKU',
+    'Quantità netta',
+    'Unità',
+    'Sfrido',
+    'Quantità ordine',
+    'Formato',
+    'Finitura / colore',
+    'Prezzo unitario',
+    'Totale stimato',
+    'URL',
+    'Note',
+  ];
+  const csv = [
+    `\uFEFF${headers.map(csvCell).join(';')}`,
+    ...rows.map((row) => headers.map((header) => csvCell(row[header] || '')).join(';')),
+  ].join('\r\n');
+  const roomSlug = appState.activeRoom === 'first' ? 'primo-piano' : 'pianterreno';
+  const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  const filename = `bom-bagno-${roomSlug}-${timestamp}.csv`;
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  window.__LAST_BOM_DOWNLOAD__ = { filename, rows: rows.length };
+  showToast(`📋 BOM esportata: ${rows.length} voci`);
 }
 
 // Keyboard controls
@@ -1427,6 +1701,7 @@ function initUI() {
 
   // Photo download button
   document.getElementById('btn-download-photo')?.addEventListener('click', downloadActiveViewPhoto);
+  document.getElementById('btn-export-bom')?.addEventListener('click', downloadBomCsv);
 
   // Tabs
   document.querySelectorAll('.tab-btn').forEach((btn) => {
