@@ -641,26 +641,37 @@ function rotateCanvas90(srcCanvas) {
   return out;
 }
 
+const BRAND_MEDIA_PREFIX = {
+  tecnomat: '/tecnomat-media',
+  baucer: '/baucer-media',
+  armonie: '/armonie-media',
+  florim: '/florim-media',
+  mirage: '/mirage-media',
+  caesar: '/caesar-media',
+  fap: '/fap-media',
+  bardelli: '/bardelli-media',
+  serenissima: '/serenissima-media',
+  delconca: '/delconca-media',
+  demaio: '/demaio-media',
+  fioranese: '/fioranese-media',
+  tecnolam: '/tecnolam-media',
+  atlas: '/atlas-media',
+  iperceramica: '/iperceramica-media',
+};
+
 export function getCatalogItemKey(item) {
   const brand = item.brand || 'tecnomat';
-  if (brand === 'baucer') return `baucer:${item.sku}`;
-  if (brand === 'armonie') return `armonie:${item.sku}`;
-  if (brand === 'iperceramica') return `iperceramica:${item.sku}`;
-  return `tm:${item.sku}`;
+  if (brand === 'tecnomat') return `tm:${item.sku}`;
+  return `${brand}:${item.sku}`;
 }
 
 export function getCatalogItemThumbUrl(item) {
   const brand = item.brand || 'tecnomat';
-  if (brand === 'baucer') {
-    return `/baucer-media/${item.thumbPic || item.pic}`;
+  if (brand === 'tecnomat') {
+    return `/tecnomat-media/${item.pic}?width=220&quality=80`;
   }
-  if (brand === 'armonie') {
-    return `/armonie-media/${item.thumbPic || item.pic}`;
-  }
-  if (brand === 'iperceramica') {
-    return `/iperceramica-media/${item.thumbPic || item.pic}`;
-  }
-  return `/tecnomat-media/${item.pic}?width=220&quality=80`;
+  const prefix = BRAND_MEDIA_PREFIX[brand] || `/${brand}-media`;
+  return `${prefix}/${item.thumbPic || item.pic}`;
 }
 
 export class TextureLibrary {
@@ -769,19 +780,10 @@ export class TextureLibrary {
       });
 
     let loadedImgs = [];
-    if (brand === 'baucer') {
-      const primaryUrl = `/baucer-media/${item.pic}`;
-      const fallbackUrl = item.thumbPic ? `/baucer-media/${item.thumbPic}` : primaryUrl;
-      const img = await loadUrl(primaryUrl).catch(() => loadUrl(fallbackUrl));
-      loadedImgs = [img];
-    } else if (brand === 'armonie') {
-      const primaryUrl = `/armonie-media/${item.pic}`;
-      const fallbackUrl = item.thumbPic ? `/armonie-media/${item.thumbPic}` : primaryUrl;
-      const img = await loadUrl(primaryUrl).catch(() => loadUrl(fallbackUrl));
-      loadedImgs = [img];
-    } else if (brand === 'iperceramica') {
-      const primaryUrl = `/iperceramica-media/${item.pic}`;
-      const fallbackUrl = item.thumbPic ? `/iperceramica-media/${item.thumbPic}` : primaryUrl;
+    if (brand !== 'tecnomat') {
+      const prefix = BRAND_MEDIA_PREFIX[brand] || `/${brand}-media`;
+      const primaryUrl = `${prefix}/${item.pic}`;
+      const fallbackUrl = item.thumbPic ? `${prefix}/${item.thumbPic}` : primaryUrl;
       const img = await loadUrl(primaryUrl).catch(() => loadUrl(fallbackUrl));
       loadedImgs = [img];
     } else {
@@ -1112,11 +1114,40 @@ export class TextureLibrary {
       drawGridGrout(dCtx, bCtx, size, cols, rows, groutColor, groutPx, false);
     }
 
-    // Derive surface roughness & micro-relief from Tecnomat finish metadata
+    // Derive surface roughness & micro-relief from finish metadata (including 3D wall reliefs like Kaolin 3D Wave/Texture/Pitch)
     const fin = String(item.finish || '').toLowerCase();
+    const relief3d = item.relief3d || (fin.includes('3d') ? 'wave' : null);
     let roughness = 0.52;
     let bumpScale = 0.011;
-    if (fin.includes('levigat') || fin.includes('lucid') || fin.includes('lappat')) {
+    if (relief3d) {
+      roughness = 0.62;
+      bumpScale = 0.042;
+      const ridges = relief3d === 'pitch' ? 36 : relief3d === 'texture' ? 28 : 16;
+      const bandH = size / ridges;
+      for (let i = 0; i < ridges; i++) {
+        const y0 = i * bandH;
+        const gradB = bCtx.createLinearGradient(0, y0, 0, y0 + bandH);
+        if (relief3d === 'pitch') {
+          gradB.addColorStop(0, 'rgba(255,255,255,0.85)');
+          gradB.addColorStop(0.48, 'rgba(255,255,255,0.85)');
+          gradB.addColorStop(0.52, 'rgba(45,45,45,0.85)');
+          gradB.addColorStop(1, 'rgba(45,45,45,0.85)');
+        } else {
+          gradB.addColorStop(0, 'rgba(55,55,55,0.75)');
+          gradB.addColorStop(0.5, 'rgba(250,250,250,0.85)');
+          gradB.addColorStop(1, 'rgba(55,55,55,0.75)');
+        }
+        bCtx.fillStyle = gradB;
+        bCtx.fillRect(0, y0, size, bandH);
+
+        const gradD = dCtx.createLinearGradient(0, y0, 0, y0 + bandH);
+        gradD.addColorStop(0, 'rgba(0,0,0,0.06)');
+        gradD.addColorStop(0.45, 'rgba(255,255,255,0.07)');
+        gradD.addColorStop(1, 'rgba(0,0,0,0.08)');
+        dCtx.fillStyle = gradD;
+        dCtx.fillRect(0, y0, size, bandH);
+      }
+    } else if (fin.includes('levigat') || fin.includes('lucid') || fin.includes('lappat')) {
       roughness = 0.15;
       bumpScale = 0.005;
     } else if (fin.includes('strutturat') || fin.includes('anticat')) {

@@ -91,6 +91,8 @@ export class VanityManager {
 
     this.currentGroup = null;
     this.currentModelId = 'milano';
+    this.catalogItemsById = new Map();
+    this.activeCatalogItem = null;
     this.roomType = 'ground';
     this.wallPose = {
       x: 1.895,
@@ -100,8 +102,27 @@ export class VanityManager {
     };
   }
 
+  registerCatalogItems(items = []) {
+    this.catalogItemsById.clear();
+    for (const it of items) {
+      if (it && it.id) {
+        this.catalogItemsById.set(it.id, it);
+      }
+    }
+  }
+
+  getSpanInfo() {
+    if (this.activeCatalogItem) {
+      return {
+        span: Math.max(0.58, (this.activeCatalogItem.widthCm || 90) / 100),
+        centerOffset: 0.0,
+      };
+    }
+    return MODEL_SPAN_INFO[this.currentModelId] || MODEL_SPAN_INFO.milano;
+  }
+
   getNaturalSpan() {
-    return (MODEL_SPAN_INFO[this.currentModelId] || MODEL_SPAN_INFO.milano).span;
+    return this.getSpanInfo().span;
   }
 
   setWallPose(pose) {
@@ -116,7 +137,7 @@ export class VanityManager {
   }
 
   updateAnchorTransform() {
-    const info = MODEL_SPAN_INFO[this.currentModelId] || MODEL_SPAN_INFO.milano;
+    const info = this.getSpanInfo();
     const avail = Math.max(0.75, this.wallPose.availWidth || 1.55);
     const scaleX = Math.min(1.0, (avail - 0.03) / info.span);
     const scaleZ = scaleX < 0.9 ? 0.93 : 1.0;
@@ -141,6 +162,12 @@ export class VanityManager {
 
   setModel(modelId) {
     this.currentModelId = modelId;
+    const catItem = this.catalogItemsById.get(modelId) || null;
+    this.activeCatalogItem = catItem;
+    if (catItem && catItem.hex) {
+      this.setFinish({ hex: catItem.hex, wood: Boolean(catItem.wood) });
+    }
+
     if (this.currentGroup) {
       this.currentGroup.traverse((o) => {
         if (o.geometry) o.geometry.dispose();
@@ -149,23 +176,27 @@ export class VanityManager {
     }
 
     const g = new THREE.Group();
-    switch (modelId) {
-      case 'brera':
-        this.buildBrera(g);
-        break;
-      case 'venezia':
-        this.buildVenezia(g);
-        break;
-      case 'cortina':
-        this.buildCortina(g);
-        break;
-      case 'amalfi':
-        this.buildAmalfi(g);
-        break;
-      case 'milano':
-      default:
-        this.buildMilano(g);
-        break;
+    if (catItem) {
+      this.buildAvivo(g, catItem);
+    } else {
+      switch (modelId) {
+        case 'brera':
+          this.buildBrera(g);
+          break;
+        case 'venezia':
+          this.buildVenezia(g);
+          break;
+        case 'cortina':
+          this.buildCortina(g);
+          break;
+        case 'amalfi':
+          this.buildAmalfi(g);
+          break;
+        case 'milano':
+        default:
+          this.buildMilano(g);
+          break;
+      }
     }
 
     g.traverse((obj) => {
@@ -625,5 +656,187 @@ export class VanityManager {
     colHandle.position.set(-0.125, -0.1, 0.274);
     colGroup.add(colBody, colDoor, colHandle);
     g.add(colGroup);
+  }
+
+  // 6. IPERCERAMICA AVIVO CANNETTATO (60 / 75 / 90 / 120 cm · 1/2 Ante o 1/2 Cassetti)
+  buildAvivo(g, item) {
+    const W = Math.max(0.58, (item.widthCm || 90) / 100);
+    const D = 0.46;
+    const isSingleDrawer = item.openingKind === '1-drawer';
+    const isTwoDrawers = item.openingKind === '2-drawers';
+    const isTwoDoors = item.openingKind === '2-doors';
+    const H = isSingleDrawer ? 0.35 : 0.54;
+    const yTop = 0.85;
+    const yBot = yTop - H;
+    const yMid = (yTop + yBot) * 0.5;
+
+    // Main suspended cabinet carcass
+    const carcass = new THREE.Mesh(
+      new THREE.BoxGeometry(W - 0.008, H - 0.01, D - 0.022),
+      this.cabinetMaterial
+    );
+    carcass.position.set(0, yMid, (D - 0.022) * 0.5);
+    g.add(carcass);
+
+    // Front panel(s) + optional 3D vertical fluted slats (Cannettato for Iperceramica Avivo & fluted Deghi models)
+    const isFluted = item.brand !== 'deghi' || Boolean(item.fluted);
+    const slatCount = Math.max(16, Math.round(W * 32));
+    const slatPitch = (W - 0.024) / slatCount;
+
+    if (isTwoDrawers) {
+      const hHalf = (H - 0.024) * 0.5;
+      const yUpper = yTop - hHalf * 0.5 - 0.004;
+      const yLower = yBot + hHalf * 0.5 + 0.004;
+
+      for (const yBand of [yLower, yUpper]) {
+        const front = new THREE.Mesh(
+          new THREE.BoxGeometry(W - 0.004, hHalf, 0.016),
+          this.cabinetMaterial
+        );
+        front.position.set(0, yBand, D - 0.014);
+        g.add(front);
+
+        if (isFluted) {
+          for (let i = 0; i < slatCount; i++) {
+            const sx = -W * 0.5 + 0.012 + (i + 0.5) * slatPitch;
+            const rib = new THREE.Mesh(
+              new THREE.BoxGeometry(slatPitch * 0.58, hHalf - 0.006, 0.012),
+              this.cabinetMaterial
+            );
+            rib.position.set(sx, yBand, D - 0.003);
+            g.add(rib);
+          }
+        }
+      }
+
+      const groove = new THREE.Mesh(
+        new THREE.BoxGeometry(W - 0.01, 0.022, 0.024),
+        this.darkGrooveMat
+      );
+      groove.position.set(0, yMid, D - 0.016);
+      g.add(groove);
+    } else {
+      const front = new THREE.Mesh(
+        new THREE.BoxGeometry(W - 0.004, H - 0.008, 0.016),
+        this.cabinetMaterial
+      );
+      front.position.set(0, yMid, D - 0.014);
+      g.add(front);
+
+      if (isFluted) {
+        for (let i = 0; i < slatCount; i++) {
+          const sx = -W * 0.5 + 0.012 + (i + 0.5) * slatPitch;
+          if (isTwoDoors && Math.abs(sx) < 0.007) continue; // center door seam
+          const rib = new THREE.Mesh(
+            new THREE.BoxGeometry(slatPitch * 0.58, H - 0.016, 0.012),
+            this.cabinetMaterial
+          );
+          rib.position.set(sx, yMid, D - 0.003);
+          g.add(rib);
+        }
+      }
+
+      if (isTwoDoors) {
+        const doorSeam = new THREE.Mesh(
+          new THREE.BoxGeometry(0.008, H - 0.01, 0.02),
+          this.darkGrooveMat
+        );
+        doorSeam.position.set(0, yMid, D - 0.01);
+        g.add(doorSeam);
+      }
+    }
+
+    // Basin / Top configuration (Toppino, 2 Vasche, Vasca Sinistra/Destra, HIDE, SMILE, SMART)
+    if (item.basinType === 'toppino') {
+      // Matching cabinet wood/lacquer counter top + oval ceramic vessel sink
+      const topSlab = new THREE.Mesh(
+        new THREE.BoxGeometry(W + 0.012, 0.028, D + 0.012),
+        this.cabinetMaterial
+      );
+      topSlab.position.set(0, yTop + 0.014, (D + 0.012) * 0.5);
+      g.add(topSlab);
+
+      const bowl = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.19, 0.145, 0.13, 28),
+        this.ceramicMat
+      );
+      bowl.scale.set(1.24, 1, 0.92);
+      bowl.position.set(0, yTop + 0.09, D * 0.52);
+      g.add(bowl);
+      this.addFaucet(g, 0, yTop + 0.028, 0.08, true);
+    } else if (item.doubleBasin) {
+      // 120 cm double-basin ceramic top (2 vasche SMART)
+      const halfW = W * 0.5;
+      for (const side of [-1, 1]) {
+        const sub = new THREE.Group();
+        sub.position.set(side * (halfW * 0.5), 0, 0);
+        this.buildIntegratedBasinTop(sub, halfW + 0.006, D + 0.01, yTop + 0.025);
+        this.addFaucet(sub, 0, yTop + 0.025, 0.085, false);
+        g.add(sub);
+      }
+    } else if (item.offsetBasin && Math.abs(item.offsetBasin) > 0.05) {
+      // 120 cm asymmetric left or right basin + counter space
+      const bShift = item.offsetBasin;
+      const basinSpan = 0.68;
+      const sub = new THREE.Group();
+      sub.position.set(bShift, 0, 0);
+      this.buildIntegratedBasinTop(sub, basinSpan, D + 0.01, yTop + 0.025);
+      this.addFaucet(sub, 0, yTop + 0.025, 0.085, false);
+      g.add(sub);
+
+      // Solid ceramic counter wing on the opposite side
+      const wingW = W + 0.01 - basinSpan;
+      const wingX = bShift < 0 ? W * 0.5 - wingW * 0.5 + 0.003 : -W * 0.5 + wingW * 0.5 - 0.003;
+      const wing = new THREE.Mesh(
+        new THREE.BoxGeometry(wingW, 0.035, D + 0.01),
+        this.ceramicMat
+      );
+      wing.position.set(wingX, yTop + 0.025 - 0.0175, (D + 0.01) * 0.5);
+      g.add(wing);
+    } else {
+      this.buildIntegratedBasinTop(g, W + 0.01, D + 0.01, yTop + 0.025);
+      this.addFaucet(g, 0, yTop + 0.025, 0.085, false);
+    }
+
+    if (W >= 0.72) {
+      const decorX = item.offsetBasin < 0 ? W * 0.32 : -W * 0.34;
+      this.addCounterDecor(g, decorX, yTop + 0.025, 0.16);
+    }
+
+    // Matching backlit LED mirror proportional to cabinet width
+    if (W <= 0.8) {
+      const r = Math.min(0.42, W * 0.48);
+      const halo = new THREE.Mesh(new THREE.CircleGeometry(r + 0.02, 44), this.ledGlowMat);
+      halo.position.set(0, 1.52, 0.012);
+      const mirror = new THREE.Mesh(
+        new THREE.CylinderGeometry(r, r, 0.02, 44),
+        this.mirrorMat
+      );
+      mirror.rotation.x = Math.PI / 2;
+      mirror.position.set(0, 1.52, 0.024);
+      g.add(halo, mirror);
+    } else {
+      const mW = W - 0.04;
+      const mH = 0.72;
+      const halo = new THREE.Mesh(new THREE.PlaneGeometry(mW + 0.04, mH + 0.04), this.ledGlowMat);
+      halo.position.set(0, 1.52, 0.012);
+      const mirror = new THREE.Mesh(new THREE.BoxGeometry(mW, mH, 0.022), this.mirrorMat);
+      mirror.position.set(0, 1.52, 0.024);
+      g.add(halo, mirror);
+    }
+
+    // Optional matching tall suspended side column cabinet when Deghi model includes "+ Colonna"
+    if (item.hasColumn && W <= 1.05) {
+      const colGroup = new THREE.Group();
+      colGroup.position.set(W * 0.5 + 0.22, 1.24, 0);
+      const colBody = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.28, 0.24), this.cabinetMaterial);
+      colBody.position.set(0, 0, 0.12);
+      const colDoor = new THREE.Mesh(new THREE.BoxGeometry(0.295, 1.27, 0.016), this.cabinetMaterial);
+      colDoor.position.set(0, 0, 0.248);
+      const colHandle = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.22, 0.02), this.metalMat);
+      colHandle.position.set(-0.115, -0.08, 0.264);
+      colGroup.add(colBody, colDoor, colHandle);
+      g.add(colGroup);
+    }
   }
 }
