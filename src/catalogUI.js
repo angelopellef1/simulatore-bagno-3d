@@ -5,6 +5,7 @@ const BRAND_OPTIONS = [
   { id: 'tecnomat', label: 'Tecnomat', short: 'Tecnomat' },
   { id: 'baucer', label: 'Progetto Baucer', short: 'Baucer' },
   { id: 'armonie', label: 'Armonie Ceramiche', short: 'Armonie' },
+  { id: 'iperceramica', label: 'Iperceramica', short: 'Iperceramica' },
   { id: 'PRESETS', label: 'Preset Procedurali Base', short: 'Preset 3D' },
 ];
 
@@ -23,6 +24,7 @@ const BRAND_LABELS = {
   tecnomat: 'Tecnomat',
   baucer: 'Progetto Baucer',
   armonie: 'Armonie',
+  iperceramica: 'Iperceramica',
 };
 
 const PAGE_STEP = 24;
@@ -45,7 +47,7 @@ export class CatalogSelector {
     this.onSelectionChange = onSelectionChange;
 
     this.byKey = new Map();
-    this.brandCounts = { tecnomat: 0, baucer: 0, armonie: 0 };
+    this.brandCounts = { tecnomat: 0, baucer: 0, armonie: 0, iperceramica: 0 };
     for (const it of catalogItems) {
       const b = it.brand || 'tecnomat';
       this.brandCounts[b] = (this.brandCounts[b] || 0) + 1;
@@ -213,7 +215,7 @@ export class CatalogSelector {
     if (isPresets) {
       this.searchInput.placeholder = 'Cerca piastrella (passa ai cataloghi)...';
     } else if (this.brand === 'ALL') {
-      this.searchInput.placeholder = `Cerca tra ${scoped.length} gres (Tecnomat, Baucer, Armonie)...`;
+      this.searchInput.placeholder = `Cerca tra ${scoped.length} gres (4 cataloghi)...`;
     } else {
       const bLabel = BRAND_OPTIONS.find((b) => b.id === this.brand)?.label || this.brand;
       this.searchInput.placeholder = `Cerca in ${bLabel} (${scoped.length} articoli)...`;
@@ -495,7 +497,7 @@ export class CatalogSelector {
     const filtered = this.getFilteredCatalog();
     const scopeName =
       this.brand === 'ALL'
-        ? '3 cataloghi'
+        ? '4 cataloghi'
         : BRAND_OPTIONS.find((b) => b.id === this.brand)?.label || this.brand;
     this.countText.textContent = `${filtered.length} di ${scopedTotal} articoli (${scopeName})`;
 
@@ -514,7 +516,8 @@ export class CatalogSelector {
       const key = getCatalogItemKey(item);
       const brandId = item.brand || 'tecnomat';
       const brandLabel = item.brandLabel || BRAND_LABELS[brandId] || 'Tecnomat';
-      const shortBadge = brandId === 'baucer' ? 'Baucer' : brandLabel;
+      const shortBadge =
+        brandId === 'baucer' ? 'Baucer' : brandId === 'iperceramica' ? 'Iperceramica' : brandLabel;
       const thumbUrl = getCatalogItemThumbUrl(item);
       const isSelected = this.selectedKey === key;
       const isLoading = this.loadingKey === key;

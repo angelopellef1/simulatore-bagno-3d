@@ -645,6 +645,7 @@ export function getCatalogItemKey(item) {
   const brand = item.brand || 'tecnomat';
   if (brand === 'baucer') return `baucer:${item.sku}`;
   if (brand === 'armonie') return `armonie:${item.sku}`;
+  if (brand === 'iperceramica') return `iperceramica:${item.sku}`;
   return `tm:${item.sku}`;
 }
 
@@ -655,6 +656,9 @@ export function getCatalogItemThumbUrl(item) {
   }
   if (brand === 'armonie') {
     return `/armonie-media/${item.thumbPic || item.pic}`;
+  }
+  if (brand === 'iperceramica') {
+    return `/iperceramica-media/${item.thumbPic || item.pic}`;
   }
   return `/tecnomat-media/${item.pic}?width=220&quality=80`;
 }
@@ -773,6 +777,11 @@ export class TextureLibrary {
     } else if (brand === 'armonie') {
       const primaryUrl = `/armonie-media/${item.pic}`;
       const fallbackUrl = item.thumbPic ? `/armonie-media/${item.thumbPic}` : primaryUrl;
+      const img = await loadUrl(primaryUrl).catch(() => loadUrl(fallbackUrl));
+      loadedImgs = [img];
+    } else if (brand === 'iperceramica') {
+      const primaryUrl = `/iperceramica-media/${item.pic}`;
+      const fallbackUrl = item.thumbPic ? `/iperceramica-media/${item.thumbPic}` : primaryUrl;
       const img = await loadUrl(primaryUrl).catch(() => loadUrl(fallbackUrl));
       loadedImgs = [img];
     } else {

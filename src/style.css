@@ -924,6 +924,10 @@ body,
   background: rgba(67, 56, 202, 0.88);
 }
 
+.brand-badge.brand-iperceramica {
+  background: rgba(190, 24, 93, 0.9);
+}
+
 .tm-ext-link {
   font-size: 0.66rem;
   font-weight: 600;

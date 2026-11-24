@@ -19,6 +19,12 @@ const mediaProxies = {
     secure: false,
     rewrite: (path) => path.replace(/^\/armonie-media/, ''),
   },
+  '/iperceramica-media': {
+    target: 'https://cdn.iperceramica.it',
+    changeOrigin: true,
+    secure: false,
+    rewrite: (path) => path.replace(/^\/iperceramica-media/, ''),
+  },
 };
 
 export default defineConfig({

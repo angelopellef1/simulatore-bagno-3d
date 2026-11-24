@@ -19,3 +19,9 @@
   to = "https://www.armonieceramiche.com/:splat"
   status = 200
   force = true
+
+[[redirects]]
+  from = "/iperceramica-media/*"
+  to = "https://cdn.iperceramica.it/:splat"
+  status = 200
+  force = true

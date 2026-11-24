@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "catalog:refresh": "node --use-system-ca scripts/fetch-tecnomat-catalog.mjs && node --use-system-ca scripts/fetch-baucer-armonie-catalogs.mjs"
+    "catalog:refresh": "node --use-system-ca scripts/fetch-tecnomat-catalog.mjs && node --use-system-ca scripts/fetch-baucer-armonie-catalogs.mjs && node --use-system-ca scripts/fetch-iperceramica-catalog.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"

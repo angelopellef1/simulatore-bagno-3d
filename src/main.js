@@ -1208,13 +1208,14 @@ function initUI() {
     });
   });
 
-  // Load Tecnomat, Progetto Baucer, and Armonie Ceramiche catalogs and restore saved coverings
+  // Load supplier catalogs and restore saved coverings
   Promise.all([
     fetch('/tecnomat-gres-catalog.json').then((r) => r.json()),
     fetch('/baucer-catalog.json').then((r) => (r.ok ? r.json() : { items: [] })).catch(() => ({ items: [] })),
     fetch('/armonie-catalog.json').then((r) => (r.ok ? r.json() : { items: [] })).catch(() => ({ items: [] })),
+    fetch('/iperceramica-gres-catalog.json').then((r) => (r.ok ? r.json() : { items: [] })).catch(() => ({ items: [] })),
   ])
-    .then(async ([tmData, baucerData, armonieData]) => {
+    .then(async ([tmData, baucerData, armonieData, iperceramicaData]) => {
       const tmItems = (Array.isArray(tmData.items) ? tmData.items : []).map((it) => ({
         ...it,
         brand: 'tecnomat',
@@ -1222,14 +1223,16 @@ function initUI() {
       }));
       const baucerItems = Array.isArray(baucerData.items) ? baucerData.items : [];
       const armonieItems = Array.isArray(armonieData.items) ? armonieData.items : [];
+      const iperceramicaItems = Array.isArray(iperceramicaData.items) ? iperceramicaData.items : [];
 
-      const items = [...tmItems, ...baucerItems, ...armonieItems];
+      const items = [...tmItems, ...baucerItems, ...armonieItems, ...iperceramicaItems];
       window.__TECNOMAT_CATALOG__ = tmItems;
       window.__ALL_CATALOGS__ = {
         total: items.length,
         tecnomat: tmItems.length,
         baucer: baucerItems.length,
         armonie: armonieItems.length,
+        iperceramica: iperceramicaItems.length,
         items,
       };
 
