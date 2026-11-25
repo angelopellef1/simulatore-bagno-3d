@@ -654,6 +654,28 @@ if (uGrid > 0.5) {
     return b > a + 0.05 ? [a, b] : null;
   }
 
+  getShowerTouchingWalls() {
+    if (!this.showerEnabled) return [];
+    const shBox = this.getShowerAABB();
+    if (!shBox) return [];
+    const out = [];
+    for (const seg of this.getBaseWallSegments()) {
+      const range = this.getShowerIntervalOnWall(seg, shBox);
+      if (range && range[1] - range[0] > 0.05) {
+        out.push({
+          wallId: seg.id,
+          showerWallKey: `shower:${seg.id}`,
+          label: `Doccia · ${seg.label}`,
+          shortLabel: seg.label,
+          s0: range[0],
+          s1: range[1],
+          widthCm: Math.round((range[1] - range[0]) * 100),
+        });
+      }
+    }
+    return out;
+  }
+
   getFreeSpanAroundOnWall(wall, sCenter, shBox) {
     let left = 0;
     let right = wall.len;
@@ -797,6 +819,8 @@ if (uGrid > 0.5) {
             y1: bp.y1,
             showerPatch,
             vanityZone,
+            showerTrimLeft: Boolean(showerPatch && shRange && Math.abs(a - shRange[0]) < 0.008 && a > 0.02),
+            showerTrimRight: Boolean(showerPatch && shRange && Math.abs(b - shRange[1]) < 0.008 && b < seg.len - 0.02),
             trimLeft: vanityZone && Math.abs(a - vanRange[0]) < 0.008 && a > 0.02,
             trimRight: vanityZone && Math.abs(b - vanRange[1]) < 0.008 && b < seg.len - 0.02,
           });
@@ -847,18 +871,36 @@ if (uGrid > 0.5) {
         const useVanityAccent = Boolean(patch.vanityZone && this.vanityWallEnabled);
         let tileTop = ROOM_HEIGHT;
         if (patch.showerPatch && this.showerTileHeightMode !== 'follow') {
-          tileTop = this.showerTileHeightMode === 'fixed-270' ? ROOM_HEIGHT : 2.1;
+          tileTop =
+            this.showerTileHeightMode === 'fixed-270'
+              ? ROOM_HEIGHT
+              : this.showerTileHeightMode === 'fixed-240'
+                ? 2.4
+                : 2.1;
         } else if (useVanityAccent && this.vanityWallHeightMode === 'full') {
           tileTop = ROOM_HEIGHT;
+        } else if (useVanityAccent && this.vanityWallHeightMode === 'h240') {
+          tileTop = 2.4;
+        } else if (this.tileHeightMode === 'h240') {
+          tileTop = 2.4;
         } else if (this.tileHeightMode === 'door') {
           tileTop = 2.1;
         } else if (this.tileHeightMode === 'half') {
           tileTop = 1.2;
         }
 
-        const activeTileMat = useVanityAccent
-          ? this.vanityWallMaterial
-          : customWallMat || this.wallTileMaterial;
+        const showerWallKey = `shower:${def.id}`;
+        const customShowerMat = patch.showerPatch
+          ? this.perWallMaterials.get(showerWallKey) || null
+          : null;
+        const patchWallId = patch.showerPatch ? showerWallKey : def.id;
+        const patchWallLabel = patch.showerPatch ? `Doccia · ${def.label}` : def.label;
+
+        const activeTileMat = patch.showerPatch
+          ? customShowerMat || customWallMat || this.wallTileMaterial
+          : useVanityAccent
+            ? this.vanityWallMaterial
+            : customWallMat || this.wallTileMaterial;
 
         // Lower tiled band (con eventuale divisione: rivestimento diverso sotto/sopra 120 cm)
         const t0 = patch.y0;
@@ -884,7 +926,13 @@ if (uGrid > 0.5) {
             const geo = buildQuadGeometry(def.p1, def.p2, patch.s0, patch.s1, b0, b1, uRunning, false);
             const mesh = new THREE.Mesh(geo, bMat);
             mesh.receiveShadow = true;
-            mesh.userData = { isWall: true, wallId: def.id, wallLabel: def.label };
+            mesh.userData = {
+              isWall: true,
+              wallId: patchWallId,
+              baseWallId: def.id,
+              isShowerWall: Boolean(patch.showerPatch),
+              wallLabel: patchWallLabel,
+            };
             group.add(mesh);
           }
           if (doSplit) {
@@ -906,13 +954,18 @@ if (uGrid > 0.5) {
           }
         }
 
-        // Vertical jolly trim profile along the vanity accent zone border(s) OR shower height step!
-        if (useVanityAccent && t1 > t0 + 0.01) {
+        // Vertical jolly trim profile along vanity accent zone OR custom shower wall border(s)
+        if ((useVanityAccent || customShowerMat) && t1 > t0 + 0.01) {
           const ux = dx / len;
           const uz = dz / len;
           const vTrimSides = [];
-          if (patch.trimLeft) vTrimSides.push(patch.s0);
-          if (patch.trimRight) vTrimSides.push(patch.s1);
+          if (useVanityAccent) {
+            if (patch.trimLeft) vTrimSides.push(patch.s0);
+            if (patch.trimRight) vTrimSides.push(patch.s1);
+          } else if (customShowerMat) {
+            if (patch.showerTrimLeft) vTrimSides.push(patch.s0);
+            if (patch.showerTrimRight) vTrimSides.push(patch.s1);
+          }
           for (const sEdge of vTrimSides) {
             const vTrim = new THREE.Mesh(
               new THREE.BoxGeometry(0.01, t1 - t0, 0.01),
@@ -928,7 +981,13 @@ if (uGrid > 0.5) {
         }
 
         const generalTop =
-          this.tileHeightMode === 'full' ? ROOM_HEIGHT : this.tileHeightMode === 'door' ? 2.1 : 1.2;
+          this.tileHeightMode === 'full'
+            ? ROOM_HEIGHT
+            : this.tileHeightMode === 'h240'
+              ? 2.4
+              : this.tileHeightMode === 'door'
+                ? 2.1
+                : 1.2;
         if (patch.showerPatch && Math.abs(t1 - generalTop) > 0.02) {
           const ux = dx / len;
           const uz = dz / len;
@@ -957,7 +1016,13 @@ if (uGrid > 0.5) {
           const geo = buildQuadGeometry(def.p1, def.p2, patch.s0, patch.s1, p0, p1, uRunning, false);
           const mesh = new THREE.Mesh(geo, this.wallPaintMaterial);
           mesh.receiveShadow = true;
-          mesh.userData = { isWall: true, wallId: def.id, wallLabel: def.label };
+          mesh.userData = {
+            isWall: true,
+            wallId: patchWallId,
+            baseWallId: def.id,
+            isShowerWall: Boolean(patch.showerPatch),
+            wallLabel: patchWallLabel,
+          };
           group.add(mesh);
         }
 
@@ -1324,9 +1389,9 @@ if (uGrid > 0.5) {
   }
 
   buildSanitaryAndRadiator() {
-    // 1. Movable Bidet unit (Suspended Bidet + Heated Towel Rail / Scaldasalviette above it)
+    // 1. Movable Bidet unit (Floor-standing Back-to-Wall / Filomuro Bidet + Heated Towel Rail above it)
     this.bidetGroup = new THREE.Group();
-    const bidetBowl = this.createSuspendedBowl(true);
+    const bidetBowl = this.createFilomuroBowl(true);
     bidetBowl.rotation.y = Math.PI / 2;
     this.bidetGroup.add(bidetBowl);
 
@@ -1388,9 +1453,9 @@ if (uGrid > 0.5) {
       }
     });
 
-    // 2. Movable WC unit (Suspended WC + Dual-flush plate + Toilet roll holder)
+    // 2. Movable WC unit (Floor-standing Back-to-Wall / Filomuro WC + Dual-flush plate + Toilet roll holder)
     this.wcGroup = new THREE.Group();
-    const wcBowl = this.createSuspendedBowl(false);
+    const wcBowl = this.createFilomuroBowl(false);
     wcBowl.rotation.y = Math.PI / 2;
     this.wcGroup.add(wcBowl);
 
@@ -1438,23 +1503,51 @@ if (uGrid > 0.5) {
     }
   }
 
-  createSuspendedBowl(isBidet) {
+  createFilomuroBowl(isBidet) {
     const g = new THREE.Group();
-    // Rounded D-shape suspended Italian ceramic bowl facing -X (West)
-    const bodyGeo = new THREE.CylinderGeometry(0.185, 0.15, 0.3, 24);
+    // Rounded D-shape floor-standing back-to-wall (filomuro) Italian ceramic bowl resting on floor (y = 0..0.41m)
+    const bodyGeo = new THREE.CylinderGeometry(0.185, 0.168, 0.41, 28);
     const body = new THREE.Mesh(bodyGeo, this.ceramicMaterial);
     body.scale.set(1.38, 1, 1);
-    body.position.set(-0.27, 0.26, 0);
+    body.position.set(-0.27, 0.205, 0);
     body.castShadow = true;
+    body.receiveShadow = true;
     g.add(body);
 
+    // Flush-to-wall and flush-to-floor rear ceramic block (x = 0..-0.27, y = 0..0.41)
     const rearBox = new THREE.Mesh(
-      new THREE.BoxGeometry(0.26, 0.3, 0.36),
+      new THREE.BoxGeometry(0.27, 0.41, 0.365),
       this.ceramicMaterial
     );
-    rearBox.position.set(-0.13, 0.26, 0);
+    rearBox.position.set(-0.135, 0.205, 0);
     rearBox.castShadow = true;
+    rearBox.receiveShadow = true;
     g.add(rearBox);
+
+    // Crisp ceramic floor-contact base seal (filomuro foot)
+    const baseFront = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.171, 0.173, 0.012, 28),
+      this.ceramicMaterial
+    );
+    baseFront.scale.set(1.38, 1, 1);
+    baseFront.position.set(-0.27, 0.006, 0);
+    const baseRear = new THREE.Mesh(
+      new THREE.BoxGeometry(0.272, 0.012, 0.368),
+      this.ceramicMaterial
+    );
+    baseRear.position.set(-0.135, 0.006, 0);
+    g.add(baseFront, baseRear);
+
+    // Discreet lateral floor-fixing caps typical of Italian filomuro sanitari
+    for (const sz of [-0.184, 0.184]) {
+      const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.011, 0.011, 0.006, 12),
+        this.metalMaterial
+      );
+      cap.rotation.x = Math.PI / 2;
+      cap.position.set(-0.16, 0.085, sz);
+      g.add(cap);
+    }
 
     if (isBidet) {
       // Bidet rim + mixer faucet
@@ -1464,31 +1557,31 @@ if (uGrid > 0.5) {
       );
       rim.rotation.x = Math.PI / 2;
       rim.scale.set(1.35, 1, 1);
-      rim.position.set(-0.28, 0.405, 0);
+      rim.position.set(-0.28, 0.41, 0);
       g.add(rim);
 
       const tap = new THREE.Mesh(
         new THREE.CylinderGeometry(0.018, 0.02, 0.09, 14),
         this.metalMaterial
       );
-      tap.position.set(-0.08, 0.45, 0);
+      tap.position.set(-0.08, 0.455, 0);
       const spout = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.014, 0.018), this.metalMaterial);
-      spout.position.set(-0.11, 0.48, 0);
+      spout.position.set(-0.11, 0.485, 0);
       spout.rotation.z = 0.2;
       g.add(tap, spout);
     } else {
       // Slim soft-close WC lid
       const lid = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.185, 0.185, 0.022, 24),
+        new THREE.CylinderGeometry(0.185, 0.185, 0.022, 28),
         this.ceramicMaterial
       );
       lid.scale.set(1.38, 1, 1);
-      lid.position.set(-0.27, 0.42, 0);
+      lid.position.set(-0.27, 0.421, 0);
       const lidRear = new THREE.Mesh(
-        new THREE.BoxGeometry(0.26, 0.022, 0.36),
+        new THREE.BoxGeometry(0.27, 0.022, 0.365),
         this.ceramicMaterial
       );
-      lidRear.position.set(-0.13, 0.42, 0);
+      lidRear.position.set(-0.135, 0.421, 0);
       g.add(lid, lidRear);
     }
 
@@ -1696,14 +1789,27 @@ if (uGrid > 0.5) {
       this.hoverHighlightMesh.visible = false;
       return;
     }
-    const seg = this.getBaseWallSegments().find((s) => s.id === wallId);
+    const isShowerKey = String(wallId).startsWith('shower:');
+    const baseId = isShowerKey ? String(wallId).slice('shower:'.length) : wallId;
+    const seg = this.getBaseWallSegments().find((s) => s.id === baseId);
     if (!seg) {
       this.hoverHighlightMesh.visible = false;
       return;
     }
-    this.hoverHighlightMesh.scale.set(seg.len, ROOM_HEIGHT, 1);
-    const mx = (seg.p1.x + seg.p2.x) * 0.5 + seg.nx * 0.008;
-    const mz = (seg.p1.z + seg.p2.z) * 0.5 + seg.nz * 0.008;
+    let s0 = 0;
+    let s1 = seg.len;
+    if (isShowerKey) {
+      const shRange = this.getShowerIntervalOnWall(seg, this.getShowerAABB());
+      if (shRange) {
+        s0 = shRange[0];
+        s1 = shRange[1];
+      }
+    }
+    const spanLen = Math.max(0.05, s1 - s0);
+    const sMid = (s0 + s1) * 0.5;
+    this.hoverHighlightMesh.scale.set(spanLen, ROOM_HEIGHT, 1);
+    const mx = seg.p1.x + seg.ux * sMid + seg.nx * 0.008;
+    const mz = seg.p1.z + seg.uz * sMid + seg.nz * 0.008;
     this.hoverHighlightMesh.position.set(mx, ROOM_HEIGHT * 0.5, mz);
     this.hoverHighlightMesh.rotation.set(0, Math.atan2(seg.nx, seg.nz), 0);
     this.hoverHighlightMesh.visible = true;

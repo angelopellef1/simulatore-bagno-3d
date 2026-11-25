@@ -877,6 +877,15 @@ body,
   grid-template-columns: repeat(3, 1fr);
 }
 
+.zone-switch.four-cols {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.zone-switch.four-cols .zone-btn {
+  font-size: 0.69rem;
+  padding: 6px 3px;
+}
+
 .tool-btn.active {
   background: rgba(245, 158, 11, 0.26);
   border-color: #f59e0b;

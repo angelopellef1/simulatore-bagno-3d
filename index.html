@@ -155,19 +155,23 @@
           <div class="wall-top-options">
             <label class="sub-label">Altezza posa piastrelle (pareti)</label>
             <div class="pill-group" id="tile-height-group">
-              <button class="pill-btn" data-height="full">Tutta altezza (270)</button>
-              <button class="pill-btn active" data-height="door">Filo porta (210)</button>
-              <button class="pill-btn" data-height="half">Boiserie (120)</button>
+              <button class="pill-btn" data-height="full" title="Rivestimento a tutta altezza fino al soffitto (270 cm)">Tutta (270)</button>
+              <button class="pill-btn" data-height="h240" title="Rivestimento ad altezza lastra standard (240 cm)">Lastra (240)</button>
+              <button class="pill-btn active" data-height="door" title="Rivestimento ad altezza filo porta (210 cm)">Porta (210)</button>
+              <button class="pill-btn" data-height="half" title="Rivestimento ad altezza boiserie (120 cm)">Boiserie (120)</button>
             </div>
 
             <div id="shower-height-wrap" style="margin-top:9px">
               <label class="sub-label">Altezza piastrelle in doccia</label>
               <div class="pill-group" id="shower-height-group">
                 <button class="pill-btn active" data-sheight="fixed-210" title="Mantiene le piastrelle in doccia fisse a 210 cm anche variando il resto del bagno">
-                  🔒 Fissa 210
+                  🔒 210
+                </button>
+                <button class="pill-btn" data-sheight="fixed-240" title="Mantiene le piastrelle in doccia fisse a 240 cm anche variando il resto del bagno">
+                  🔒 240
                 </button>
                 <button class="pill-btn" data-sheight="fixed-270" title="Mantiene le piastrelle in doccia fisse a 270 cm anche variando il resto del bagno">
-                  🔒 Fissa 270
+                  🔒 270
                 </button>
                 <button class="pill-btn" data-sheight="follow" title="Varia insieme alle altre pareti">
                   Segue pareti
@@ -181,10 +185,13 @@
             </div>
           </div>
 
-          <!-- Selettore sotto-zona: Pareti Generali / Singola Parete / Area Mobile -->
-          <div class="zone-switch three-cols" id="wall-zone-switch">
+          <!-- Selettore sotto-zona: Pareti Generali / Singoli Muri Doccia / Singola Parete / Area Mobile -->
+          <div class="zone-switch four-cols" id="wall-zone-switch">
             <button type="button" class="zone-btn active" data-zone="main">
               🧱 Generali
+            </button>
+            <button type="button" class="zone-btn" data-zone="shower">
+              🚿 Doccia <span class="zone-dot" id="shower-wall-dot" style="display:none"></span>
             </button>
             <button type="button" class="zone-btn" data-zone="single">
               🖌️ Singola <span class="zone-dot" id="single-wall-dot" style="display:none"></span>
@@ -221,13 +228,34 @@
             <div id="wall-upper-catalog-mount" style="display:none"></div>
           </div>
 
+          <!-- PANE DOCCIA: PIASTRELLE PERSONALIZZATE SINGOLI MURI DOCCIA -->
+          <div id="wall-zone-shower" style="display:none">
+            <div class="wall-top-options">
+              <div class="accent-toggle-row">
+                <div>
+                  <div class="accent-toggle-title">🚿 Piastrelle Singoli Muri Doccia</div>
+                  <div class="accent-toggle-sub" id="shower-wall-target-status">
+                    Scegli quale muro del box doccia rivestire e clicca una piastrella qui sotto
+                  </div>
+                </div>
+                <button type="button" class="catalog-reset-btn" id="btn-reset-shower-walls" title="Ripristina i muri della doccia al rivestimento generale">
+                  Ripristina
+                </button>
+              </div>
+              <label class="sub-label" style="margin-top:8px">Muro doccia da personalizzare</label>
+              <div class="pill-group" id="shower-wall-targets-group"></div>
+            </div>
+
+            <div id="shower-wall-catalog-mount"></div>
+          </div>
+
           <!-- PANE 2: SINGOLA PARETE (CLICCA SU PARETE 3D) -->
           <div id="wall-zone-single" style="display:none">
             <div class="wall-top-options">
               <div class="single-wall-hint-box">
-                <div class="accent-toggle-title">🖌️ Applica su Singola Parete</div>
+                <div class="accent-toggle-title">🖌️ Applica su Singola Parete (o Muro Doccia)</div>
                 <div class="accent-toggle-sub" id="single-wall-hint-text">
-                  1. Scegli una piastrella qui sotto · 2. Fai <strong>doppio clic</strong> sulla parete nella vista 3D!
+                  1. Scegli una piastrella qui sotto · 2. Fai <strong>doppio clic</strong> sulla parete o su un singolo muro interno doccia in 3D!
                 </div>
               </div>
             </div>
@@ -260,8 +288,9 @@
 
               <label class="sub-label" style="margin-top:9px">Altezza rivestimento zona mobile</label>
               <div class="pill-group" id="vanity-height-group">
-                <button class="pill-btn active" data-vheight="same">Come altre pareti</button>
-                <button class="pill-btn" data-vheight="full">Tutta altezza (270)</button>
+                <button class="pill-btn active" data-vheight="same">Come pareti</button>
+                <button class="pill-btn" data-vheight="h240">Altezza 240</button>
+                <button class="pill-btn" data-vheight="full">Tutta (270)</button>
               </div>
             </div>
 
@@ -376,10 +405,14 @@
           <div class="sub-section" id="shower-tab-height-wrap">
             <label class="sub-label">Altezza Rivestimento Pareti in Doccia</label>
             <div class="pill-group" id="shower-tab-height-group">
-              <button type="button" class="pill-btn active" data-sheight="fixed-210">🔒 Fissa 210</button>
-              <button type="button" class="pill-btn" data-sheight="fixed-270">🔒 Fissa 270</button>
+              <button type="button" class="pill-btn active" data-sheight="fixed-210">🔒 210</button>
+              <button type="button" class="pill-btn" data-sheight="fixed-240">🔒 240</button>
+              <button type="button" class="pill-btn" data-sheight="fixed-270">🔒 270</button>
               <button type="button" class="pill-btn" data-sheight="follow">Segue pareti</button>
             </div>
+            <button type="button" class="pill-btn" id="btn-goto-shower-walls" style="width:100%; margin-top:9px; padding:8px 10px; font-weight:700;">
+              🎨 Scegli Piastrelle per Singoli Muri Doccia →
+            </button>
           </div>
         </section>
       </aside>

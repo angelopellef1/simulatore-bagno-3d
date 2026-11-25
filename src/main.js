@@ -183,10 +183,12 @@ let preDragSnapshot = null;
 let floorSelector = null;
 let wallSelector = null;
 let wallUpperSelector = null;
+let showerWallSelector = null;
 let singleWallSelector = null;
 let vanityWallSelector = null;
 let vanityCatalogSelector = null;
 let activeWallSplitTarget = 'lower'; // 'lower' (<120 cm) | 'upper' (>120 cm)
+let activeShowerWallTarget = 'ALL'; // 'ALL' | 'shower:<wallId>'
 
 // Interactive 3D tool state
 let wallPaintMode = false;
@@ -636,9 +638,18 @@ function getCoveringBomAreaGroups(config) {
       const useVanityAccent = Boolean(patch.vanityZone && config.vanityWallEnabled);
       let tileTop = 2.7;
       if (patch.showerPatch && config.showerTileHeightMode !== 'follow') {
-        tileTop = config.showerTileHeightMode === 'fixed-270' ? 2.7 : 2.1;
+        tileTop =
+          config.showerTileHeightMode === 'fixed-270'
+            ? 2.7
+            : config.showerTileHeightMode === 'fixed-240'
+              ? 2.4
+              : 2.1;
       } else if (useVanityAccent && config.vanityWallHeightMode === 'full') {
         tileTop = 2.7;
+      } else if (useVanityAccent && config.vanityWallHeightMode === 'h240') {
+        tileTop = 2.4;
+      } else if (config.tileHeightMode === 'h240') {
+        tileTop = 2.4;
       } else if (config.tileHeightMode === 'door') {
         tileTop = 2.1;
       } else if (config.tileHeightMode === 'half') {
@@ -650,17 +661,26 @@ function getCoveringBomAreaGroups(config) {
       if (t1 <= t0 + 0.001) continue;
       tiledWallArea += (patch.s1 - patch.s0) * (t1 - t0);
 
-      const baseSpec = useVanityAccent
-        ? config.vanityWall
-        : customSpec || config.wall;
+      const showerCustomSpec = patch.showerPatch
+        ? config.perWallSpecs?.[`shower:${def.id}`] || null
+        : null;
+      const effectiveWallLabel = patch.showerPatch ? `Doccia · ${def.label}` : def.label;
+      const baseSpec = patch.showerPatch
+        ? showerCustomSpec || customSpec || config.wall
+        : useVanityAccent
+          ? config.vanityWall
+          : customSpec || config.wall;
       const canSplit =
-        config.wallSplitEnabled && !useVanityAccent && !customSpec;
+        config.wallSplitEnabled &&
+        !useVanityAccent &&
+        !customSpec &&
+        !showerCustomSpec;
       if (canSplit) {
         const splitY = 1.2;
-        addArea(config.wall, (patch.s1 - patch.s0) * Math.max(0, Math.min(t1, splitY) - t0), def.label);
-        addArea(config.wallUpper, (patch.s1 - patch.s0) * Math.max(0, t1 - Math.max(t0, splitY)), def.label);
+        addArea(config.wall, (patch.s1 - patch.s0) * Math.max(0, Math.min(t1, splitY) - t0), effectiveWallLabel);
+        addArea(config.wallUpper, (patch.s1 - patch.s0) * Math.max(0, t1 - Math.max(t0, splitY)), effectiveWallLabel);
       } else {
-        addArea(baseSpec, (patch.s1 - patch.s0) * (t1 - t0), def.label);
+        addArea(baseSpec, (patch.s1 - patch.s0) * (t1 - t0), effectiveWallLabel);
       }
     }
   }
@@ -777,14 +797,14 @@ function buildBomRows() {
 
   addRow({
     Categoria: 'Sanitari',
-    Voce: 'WC sospeso',
+    Voce: 'WC a terra filomuro',
     'Quantità netta': '1',
     Unità: 'pz',
     'Quantità ordine': '1',
   });
   addRow({
     Categoria: 'Sanitari',
-    Voce: 'Bidet sospeso',
+    Voce: 'Bidet a terra filomuro',
     'Quantità netta': '1',
     Unità: 'pz',
     'Quantità ordine': '1',
@@ -897,6 +917,7 @@ function buildGeminiRenderPrompt() {
 
   const heightModeMap = {
     full: 'Tutta altezza fino a soffitto (270 cm)',
+    h240: 'Altezza lastra standard (240 cm)',
     door: 'Altezza filo porta (210 cm)',
     half: 'Altezza boiserie (120 cm)',
   };
@@ -920,9 +941,13 @@ function buildGeminiRenderPrompt() {
   const segLabelMap = new Map(room.getBaseWallSegments().map((s) => [s.id, s.label]));
   if (cfg.perWallSpecs && Object.keys(cfg.perWallSpecs).length > 0) {
     for (const [wId, wSpec] of Object.entries(cfg.perWallSpecs)) {
-      const wName = segLabelMap.get(wId) || wId;
+      const isShWall = String(wId).startsWith('shower:');
+      const baseId = isShWall ? String(wId).slice('shower:'.length) : wId;
+      const wName = isShWall
+        ? `Doccia · ${segLabelMap.get(baseId) || baseId}`
+        : segLabelMap.get(wId) || wId;
       wallLines.push(
-        `- Parete singola personalizzata (${wName}): ${describeTileSpecForPrompt(wSpec, wallSelector)}`
+        `- ${isShWall ? 'Muro doccia personalizzato' : 'Parete singola personalizzata'} (${wName}): ${describeTileSpecForPrompt(wSpec, wallSelector)}`
       );
     }
   }
@@ -966,6 +991,7 @@ function buildGeminiRenderPrompt() {
       SHOWER_TRAY_FINISHES.find((t) => t.id === cfg.showerTrayFinishId) || SHOWER_TRAY_FINISHES[0];
     const shHeightMap = {
       'fixed-210': 'rivestimento doccia altezza 210 cm',
+      'fixed-240': 'rivestimento doccia altezza 240 cm',
       'fixed-270': 'rivestimento doccia tutta altezza 270 cm',
       follow: 'rivestimento doccia allineato alle altre pareti',
     };
@@ -974,7 +1000,7 @@ function buildGeminiRenderPrompt() {
 
   const bp = room.getSanitaryPoseAndAABB('bidet');
   const wp = room.getSanitaryPoseAndAABB('wc');
-  const sanitaryDesc = `WC sospeso in ceramica bianca (${wp?.wallLabel || 'parete'}) e Bidet sospeso con termoarredo scaldasalviette sopra (${bp?.wallLabel || 'parete'})`;
+  const sanitaryDesc = `WC a terra filomuro in ceramica bianca (${wp?.wallLabel || 'parete'}) e Bidet a terra filomuro con termoarredo scaldasalviette sopra (${bp?.wallLabel || 'parete'})`;
 
   return [
     `Genera un render fotorealistico di interior design (fotografia architettonica professionale 8K, materiali PBR realistici, riflessi fisici accurati, illuminazione globale naturale e ombre morbide) partendo dalla vista 3D del bagno allegata (o seguendo fedelmente la composizione descritta), mantenendo l'inquadratura, le proporzioni reali e la posizione esatta di tutti gli elementi.`,
@@ -1291,17 +1317,106 @@ function getActiveSingleWallBrush() {
   };
 }
 
+function getWallDisplayLabel(wallId) {
+  const segMap = new Map(room.getBaseWallSegments().map((s) => [s.id, s.label]));
+  if (String(wallId).startsWith('shower:')) {
+    const baseId = String(wallId).slice('shower:'.length);
+    return `Doccia · ${segMap.get(baseId) || baseId}`;
+  }
+  return segMap.get(wallId) || wallId;
+}
+
+function syncShowerWallTargetsUI() {
+  const groupEl = document.getElementById('shower-wall-targets-group');
+  const statusEl = document.getElementById('shower-wall-target-status');
+  if (!groupEl) return;
+
+  const touching = room.getShowerTouchingWalls();
+  if (!room.showerEnabled || touching.length === 0) {
+    groupEl.innerHTML = '';
+    const enableBtn = document.createElement('button');
+    enableBtn.type = 'button';
+    enableBtn.className = 'pill-btn active';
+    enableBtn.textContent = '🚿 Attiva prima il Box Doccia per rivestirne i muri';
+    enableBtn.addEventListener('click', () => {
+      document.getElementById('btn-toggle-shower-box')?.click();
+    });
+    groupEl.appendChild(enableBtn);
+    if (statusEl) {
+      statusEl.textContent = 'Il Box Doccia è attualmente assente in questo bagno';
+    }
+    return;
+  }
+
+  if (
+    activeShowerWallTarget !== 'ALL' &&
+    !touching.some((tw) => tw.showerWallKey === activeShowerWallTarget)
+  ) {
+    activeShowerWallTarget = 'ALL';
+  }
+
+  const cfg = getCurrentRoomState();
+  const specs = cfg.perWallSpecs || {};
+
+  groupEl.innerHTML = '';
+  const allBtn = document.createElement('button');
+  allBtn.type = 'button';
+  allBtn.className = `pill-btn ${activeShowerWallTarget === 'ALL' ? 'active' : ''}`;
+  allBtn.textContent = `Tutti (${touching.length})`;
+  allBtn.title = 'Applica la piastrella scelta a tutti i muri interni del box doccia';
+  allBtn.addEventListener('click', () => {
+    activeShowerWallTarget = 'ALL';
+    syncShowerWallTargetsUI();
+  });
+  groupEl.appendChild(allBtn);
+
+  for (const tw of touching) {
+    const hasCustom = Boolean(specs[tw.showerWallKey]);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `pill-btn ${activeShowerWallTarget === tw.showerWallKey ? 'active' : ''}`;
+    btn.textContent = `${tw.shortLabel.replace(/^Parete\s+/i, '')} (${tw.widthCm}cm)${hasCustom ? ' ✓' : ''}`;
+    btn.title = `Personalizza solo ${tw.label} (${tw.widthCm} cm)`;
+    btn.addEventListener('click', () => {
+      activeShowerWallTarget = tw.showerWallKey;
+      syncShowerWallTargetsUI();
+      const existingSpec = specs[tw.showerWallKey];
+      if (existingSpec && showerWallSelector) {
+        showerWallSelector.applySelectionSpec(existingSpec, { triggerApply: false });
+      }
+    });
+    groupEl.appendChild(btn);
+  }
+
+  if (statusEl) {
+    if (activeShowerWallTarget === 'ALL') {
+      statusEl.textContent = `Clicca una piastrella per rivestire tutti i ${touching.length} muri del box doccia`;
+    } else {
+      const cur = touching.find((tw) => tw.showerWallKey === activeShowerWallTarget);
+      statusEl.textContent = `Stai scegliendo la piastrella per: ${cur?.label || activeShowerWallTarget}`;
+    }
+  }
+}
+
 function syncCustomWallsListUI() {
   const cfg = getCurrentRoomState();
   const specs = cfg.perWallSpecs || {};
   const entries = Object.keys(specs);
+  const hasShowerWalls = entries.some((k) => k.startsWith('shower:'));
+  const hasSingleWalls = entries.some((k) => !k.startsWith('shower:'));
   const box = document.getElementById('custom-walls-box');
   const list = document.getElementById('custom-walls-list');
   const dot = document.getElementById('single-wall-dot');
+  const shDot = document.getElementById('shower-wall-dot');
 
   if (dot) {
-    dot.style.display = entries.length > 0 ? 'inline-block' : 'none';
+    dot.style.display = hasSingleWalls ? 'inline-block' : 'none';
   }
+  if (shDot) {
+    shDot.style.display = hasShowerWalls ? 'inline-block' : 'none';
+  }
+  syncShowerWallTargetsUI();
+
   if (!box || !list) return;
 
   if (entries.length === 0) {
@@ -1311,21 +1426,21 @@ function syncCustomWallsListUI() {
   }
 
   box.style.display = 'block';
-  const segMap = new Map(room.getBaseWallSegments().map((s) => [s.id, s.label]));
   list.innerHTML = '';
   for (const wallId of entries) {
+    const wLabel = getWallDisplayLabel(wallId);
     const chip = document.createElement('button');
     chip.type = 'button';
     chip.className = 'custom-wall-chip';
     chip.title = 'Clicca per ripristinare questa parete al rivestimento generale';
-    chip.textContent = `${segMap.get(wallId) || wallId} ✕`;
+    chip.textContent = `${wLabel} ✕`;
     chip.addEventListener('click', () => {
-      recordUndoSnapshot(`Ripristino ${segMap.get(wallId) || wallId}`);
+      recordUndoSnapshot(`Ripristino ${wLabel}`);
       delete cfg.perWallSpecs[wallId];
       room.clearSingleWallMaterial(wallId);
       syncCustomWallsListUI();
-      saveAppState(`Parete ripristinata: ${segMap.get(wallId) || wallId}`);
-      showToast(`Parete ripristinata: ${segMap.get(wallId) || wallId}`);
+      saveAppState(`Parete ripristinata: ${wLabel}`);
+      showToast(`Parete ripristinata: ${wLabel}`);
     });
     list.appendChild(chip);
   }
@@ -1337,11 +1452,16 @@ function setWallZoneUI(z) {
     b.classList.toggle('active', b.dataset.zone === z);
   });
   const m = document.getElementById('wall-zone-main');
+  const sh = document.getElementById('wall-zone-shower');
   const s = document.getElementById('wall-zone-single');
   const v = document.getElementById('wall-zone-vanity');
   if (m) m.style.display = z === 'main' ? 'block' : 'none';
+  if (sh) sh.style.display = z === 'shower' ? 'block' : 'none';
   if (s) s.style.display = z === 'single' ? 'block' : 'none';
   if (v) v.style.display = z === 'vanity' ? 'block' : 'none';
+  if (z === 'shower') {
+    syncShowerWallTargetsUI();
+  }
 }
 
 function setWallPaintMode(enabled) {
@@ -1409,8 +1529,8 @@ let lastTouchTapPos = { x: 0, y: 0 };
 const FIXTURE_LABELS = {
   shower: () => `Box Doccia ${room.getShowerDimensions().label}`,
   vanity: () => 'Mobile Bagno',
-  bidet: () => 'Bidet + Scaldasalviette',
-  wc: () => 'WC Sospeso',
+  bidet: () => 'Bidet Filomuro + Scaldasalviette',
+  wc: () => 'WC Filomuro',
 };
 
 canvas.addEventListener('pointerdown', (e) => {
@@ -1655,6 +1775,7 @@ function syncShowerPresenceUI() {
   document.querySelectorAll('#shower-size-group .pill-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.shsize === sz);
   });
+  syncShowerWallTargetsUI();
   syncRoomLabelsUI(appState.activeRoom);
 }
 
@@ -2084,7 +2205,31 @@ function initUI() {
     room.clearAllSingleWallMaterials();
     syncCustomWallsListUI();
     saveAppState('Pareti singole ripristinate');
-    showToast('Tutte le pareti singole ripristinate al rivestimento generale');
+    showToast('Tutte le pareti singole e i muri doccia ripristinati al rivestimento generale');
+  });
+
+  document.getElementById('btn-reset-shower-walls')?.addEventListener('click', () => {
+    const cfg = getCurrentRoomState();
+    const specs = cfg.perWallSpecs || {};
+    const shKeys = Object.keys(specs).filter((k) => k.startsWith('shower:'));
+    if (shKeys.length === 0) {
+      showToast('I muri della doccia usano già il rivestimento generale');
+      return;
+    }
+    recordUndoSnapshot('Ripristino muri doccia');
+    for (const k of shKeys) {
+      delete cfg.perWallSpecs[k];
+      room.clearSingleWallMaterial(k);
+    }
+    syncCustomWallsListUI();
+    saveAppState('Muri doccia ripristinati');
+    showToast('🚿 Muri doccia ripristinati al rivestimento generale');
+  });
+
+  document.getElementById('btn-goto-shower-walls')?.addEventListener('click', () => {
+    document.querySelector('.tab-btn[data-tab="walls"]')?.click();
+    setWallPaintMode(false);
+    setWallZoneUI('shower');
   });
 
   document.getElementById('btn-reset-fixtures')?.addEventListener('click', () => {
@@ -2564,13 +2709,18 @@ function initUI() {
         initialPreset: WALL_PRESETS[0],
         onApplyBundle: (bundle) => {
           // When Clicca Parete is deselected and the user actively selects a general wall tile,
-          // apply it across ALL walls (clearing single-wall overrides unless restoring saved state)
+          // apply it across general walls (clearing non-shower single-wall overrides while keeping custom shower walls)
           if (!isRestoringRoom && !wallPaintMode) {
             const cfg = getCurrentRoomState();
-            if (cfg.perWallSpecs && Object.keys(cfg.perWallSpecs).length > 0) {
+            const nonShowerKeys = Object.keys(cfg.perWallSpecs || {}).filter(
+              (k) => !k.startsWith('shower:')
+            );
+            if (nonShowerKeys.length > 0) {
               recordUndoSnapshot('Rivestimento pareti');
-              cfg.perWallSpecs = {};
-              room.clearAllSingleWallMaterials();
+              for (const k of nonShowerKeys) {
+                delete cfg.perWallSpecs[k];
+                room.clearSingleWallMaterial(k);
+              }
               syncCustomWallsListUI();
             }
           }
@@ -2608,6 +2758,43 @@ function initUI() {
           }
           cfg.wallUpper = spec;
           saveAppState('Rivestimento sopra 120 cm aggiornato');
+        },
+      });
+
+      showerWallSelector = new CatalogSelector({
+        mountEl: document.getElementById('shower-wall-catalog-mount'),
+        catalogItems: items,
+        presets: WALL_PRESETS,
+        textureLib,
+        initialPreset: WALL_PRESETS[1],
+        onApplyBundle: (bundle) => {
+          if (isRestoringRoom) return;
+          const touching = room.getShowerTouchingWalls();
+          if (!room.showerEnabled || touching.length === 0) {
+            showToast('🚿 Attiva prima il Box Doccia per rivestirne i singoli muri');
+            return;
+          }
+          const targetKeys =
+            activeShowerWallTarget === 'ALL'
+              ? touching.map((tw) => tw.showerWallKey)
+              : [activeShowerWallTarget];
+          const spec = showerWallSelector.getSelectionSpec();
+          const cfg = getCurrentRoomState();
+          if (!cfg.perWallSpecs) cfg.perWallSpecs = {};
+          const targetDesc =
+            activeShowerWallTarget === 'ALL'
+              ? 'Tutti i muri doccia'
+              : getWallDisplayLabel(activeShowerWallTarget);
+          recordUndoSnapshot(`Piastrella su ${targetDesc}`);
+          for (const k of targetKeys) {
+            cfg.perWallSpecs[k] = { ...spec };
+            room.applySingleWallBundle(k, bundle);
+          }
+          syncCustomWallsListUI();
+          saveAppState(`Piastrella su ${targetDesc}`);
+          showToast(
+            `🚿 "${showerWallSelector.activeMeta?.title || 'Piastrella'}" applicata a ${targetDesc}`
+          );
         },
       });
 
