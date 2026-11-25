@@ -141,6 +141,17 @@ body,
   background: rgba(217, 119, 6, 0.26);
 }
 
+.gemini-btn {
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.34), rgba(168, 85, 247, 0.34));
+  border-color: rgba(168, 85, 247, 0.55);
+  color: #f3e8ff;
+}
+
+.gemini-btn:hover {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.5), rgba(192, 132, 252, 0.5));
+  border-color: #d8b4fe;
+}
+
 .saved-sync-bar {
   display: flex;
   align-items: center;
@@ -1356,6 +1367,185 @@ body,
   padding: 18px 10px;
   font-size: 0.75rem;
   color: var(--text-muted);
+}
+
+/* Google Gemini Render Modal */
+.gemini-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 14, 22, 0.72);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  z-index: 60;
+  pointer-events: auto;
+}
+
+.gemini-modal-card {
+  width: 100%;
+  max-width: 820px;
+  max-height: 90vh;
+  background: rgba(20, 25, 34, 0.97);
+  border: 1px solid rgba(168, 85, 247, 0.45);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.gemini-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  background: linear-gradient(90deg, rgba(79, 70, 229, 0.22), rgba(168, 85, 247, 0.18));
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.gemini-modal-header h2 {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #f5f3ff;
+  margin: 0;
+}
+
+.gemini-modal-sub {
+  font-size: 0.75rem;
+  color: #c4b5fd;
+  margin: 3px 0 0;
+}
+
+.gemini-close-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: var(--text-main);
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.gemini-close-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.gemini-modal-body {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 16px;
+  padding: 16px 18px;
+  overflow-y: auto;
+}
+
+.gemini-preview-col,
+.gemini-prompt-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gemini-img-wrap {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  background: #11151c;
+  aspect-ratio: 16 / 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gemini-img-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gemini-img-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.gemini-img-actions .pill-btn {
+  flex: 1;
+  font-size: 0.72rem;
+  padding: 6px 8px;
+}
+
+.gemini-tip {
+  font-size: 0.71rem;
+  line-height: 1.42;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 0;
+}
+
+.gemini-prompt-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gemini-prompt-textarea {
+  width: 100%;
+  flex: 1;
+  min-height: 230px;
+  background: rgba(10, 14, 20, 0.75);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.76rem;
+  line-height: 1.48;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.gemini-prompt-textarea:focus {
+  outline: none;
+  border-color: #a855f7;
+}
+
+.gemini-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border-subtle);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.gemini-launch-btn {
+  background: linear-gradient(135deg, #4f46e5, #9333ea);
+  border: 1px solid rgba(216, 180, 254, 0.6);
+  color: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 9px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform 0.14s ease, filter 0.14s ease;
+}
+
+.gemini-launch-btn:hover {
+  filter: brightness(1.12);
+}
+
+@media (max-width: 760px) {
+  .gemini-modal-body {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 980px) {

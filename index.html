@@ -71,6 +71,9 @@
           <button class="cam-btn photo-btn" id="btn-download-photo" title="Scarica foto PNG della vista 3D attiva">
             <span>📷</span> Scarica Foto
           </button>
+          <button class="cam-btn gemini-btn" id="btn-gemini-render" title="Copia il prompt con i modelli di pavimenti e rivestimenti usati e apri Google Gemini nel browser per generare il render fotorealistico">
+            <span>✨</span> Render Gemini
+          </button>
           <button class="cam-btn" id="btn-toggle-panel" title="Mostra / Nascondi pannello materiali">
             <span>🎨</span> Pannello
           </button>
@@ -401,6 +404,53 @@
         <div class="nav-help">
           <div><kbd>▲</kbd> <kbd>▼</kbd> Cammina · <kbd>◀</kbd> <kbd>▶</kbd> Ruota visuale</div>
           <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Movimento libero · <strong>Mouse</strong> Trascina visuale · <strong>Rotella</strong> Zoom</div>
+        </div>
+      </div>
+      <!-- Modal Assistente Render Fotorealistico Google Gemini -->
+      <div class="gemini-modal-backdrop" id="gemini-modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="gemini-modal-title">
+        <div class="gemini-modal-card">
+          <div class="gemini-modal-header">
+            <div>
+              <h2 id="gemini-modal-title">✨ Render Fotorealistico con Google Gemini</h2>
+              <p class="gemini-modal-sub">Il prompt con i modelli esatti di pavimenti e rivestimenti è già stato copiato negli appunti!</p>
+            </div>
+            <button type="button" class="gemini-close-btn" id="btn-close-gemini-modal" aria-label="Chiudi">✕</button>
+          </div>
+
+          <div class="gemini-modal-body">
+            <div class="gemini-preview-col">
+              <label class="sub-label">1. Vista 3D attuale (riferimento per Gemini)</label>
+              <div class="gemini-img-wrap">
+                <img id="gemini-preview-img" alt="Anteprima scena 3D bagno" />
+              </div>
+              <div class="gemini-img-actions">
+                <button type="button" class="pill-btn" id="btn-gemini-copy-img" title="Copia l'immagine 3D negli appunti per incollarla in Gemini">
+                  🖼️ Copia Immagine 3D
+                </button>
+                <button type="button" class="pill-btn" id="btn-gemini-download-img" title="Scarica il file PNG della vista 3D da caricare su Gemini">
+                  📥 Scarica PNG
+                </button>
+              </div>
+              <p class="gemini-tip">
+                💡 <strong>Come fare in Gemini:</strong> nella scheda di Google Gemini appena aperta premi <kbd>Ctrl</kbd>+<kbd>V</kbd> per incollare il prompt (e allega o incolla questa immagine 3D per mantenere l'inquadratura esatta!).
+              </p>
+            </div>
+
+            <div class="gemini-prompt-col">
+              <div class="gemini-prompt-label-row">
+                <label class="sub-label" for="gemini-prompt-textarea">2. Prompt generato (con modelli Pavimenti & Rivestimenti)</label>
+                <button type="button" class="copy-room-btn" id="btn-gemini-copy-prompt">📋 Copia Prompt</button>
+              </div>
+              <textarea id="gemini-prompt-textarea" class="gemini-prompt-textarea" rows="12"></textarea>
+            </div>
+          </div>
+
+          <div class="gemini-modal-footer">
+            <button type="button" class="pill-btn" id="btn-gemini-cancel">Chiudi</button>
+            <button type="button" class="gemini-launch-btn" id="btn-gemini-open-tab">
+              ✨ Copia Prompt & Apri Google Gemini ↗
+            </button>
+          </div>
         </div>
       </div>
     </div>

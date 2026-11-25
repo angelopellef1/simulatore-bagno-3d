@@ -841,6 +841,240 @@ function downloadBomCsv() {
   showToast(`📋 BOM esportata: ${rows.length} voci`);
 }
 
+// --- GOOGLE GEMINI RENDER PROMPT & BROWSER LAUNCHER ---
+let lastGeminiCaptureDataUrl = null;
+
+function describeTileSpecForPrompt(spec, selectorFallback) {
+  if (!spec || !spec.key) return 'Non specificato';
+  const rotNote = spec.rotated90 ? 'posa ruotata a 90°' : 'posa standard';
+  if (spec.key.startsWith('preset:')) {
+    const pid = spec.key.slice('preset:'.length);
+    const preset =
+      FLOOR_PRESETS.find((p) => p.id === pid) ||
+      WALL_PRESETS.find((p) => p.id === pid) ||
+      WALL_PRESETS[0];
+    return `${preset.name} (${preset.subtitle}, ${rotNote})`;
+  }
+  const item =
+    selectorFallback?.byKey?.get(String(spec.key)) ||
+    floorSelector?.byKey?.get(String(spec.key)) ||
+    wallSelector?.byKey?.get(String(spec.key));
+  if (!item) return `${spec.key} (${rotNote})`;
+  const brand = item.brandLabel || item.brand || 'Catalogo Ceramico';
+  const parts = [
+    `Marca: ${brand}`,
+    item.series ? `Collezione: ${item.series}` : null,
+    `Modello: "${item.title}"`,
+    item.effect ? `Effetto: ${item.effect}` : null,
+    item.color ? `Colore: ${item.color}` : null,
+    item.w && item.l ? `Formato: ${item.w}×${item.l} cm` : null,
+    item.finish ? `Finitura: ${item.finish}` : null,
+    item.rect ? 'Bordo rettificato (fuga minima 2 mm)' : null,
+    `Orientamento: ${rotNote}`,
+    item.sku ? `SKU: ${item.sku}` : null,
+  ].filter(Boolean);
+  return parts.join(' · ');
+}
+
+function buildGeminiRenderPrompt() {
+  const cfg = getCurrentRoomState();
+  const isFirst = appState.activeRoom === 'first';
+  const roomDesc = isFirst
+    ? 'Bagno Primo Piano rettangolare da 5,55 mq (190×292 cm, altezza soffitto 270 cm), porta 80×210 cm sulla parete Ovest e finestra 115×100 cm con infisso in legno scuro sulla parete Est (davanzale a 80 cm da terra)'
+    : 'Bagno Pianterreno sagomato da 4,68 mq (190×280 cm con rientranza 136×90 cm, altezza soffitto 270 cm), porta 80×210 cm sulla parete Ovest e finestra 115×100 cm con infisso in legno scuro sulla parete Est (davanzale a 80 cm da terra)';
+
+  const lightDesc =
+    appState.lightingMode === 'day'
+      ? 'Luce naturale diurna soleggiata che entra dalla finestra + faretti LED incassati a soffitto'
+      : 'Atmosfera serale spa con illuminazione calda a faretti LED incassati e luce soffusa';
+
+  const viewDesc =
+    navState.mode === 'orbit'
+      ? 'Vista spaccato architettonico 3D dall’alto (assonometria interna)'
+      : 'Vista interna in prima persona ad altezza occhi (fotografia d’interni grandangolare realistica)';
+
+  const floorDesc = describeTileSpecForPrompt(cfg.floor, floorSelector);
+
+  const heightModeMap = {
+    full: 'Tutta altezza fino a soffitto (270 cm)',
+    door: 'Altezza filo porta (210 cm)',
+    half: 'Altezza boiserie (120 cm)',
+  };
+  const wallHeightDesc = heightModeMap[cfg.tileHeightMode || 'door'] || heightModeMap.door;
+  const paintObj = PAINT_COLORS.find((p) => p.id === cfg.paintId) || PAINT_COLORS[0];
+
+  const wallLines = [];
+  if (cfg.wallSplitEnabled) {
+    wallLines.push(
+      `- Fascia inferiore pareti (da 0 a 120 cm): ${describeTileSpecForPrompt(cfg.wall, wallSelector)}`
+    );
+    wallLines.push(
+      `- Fascia superiore pareti (sopra 120 cm fino a ${wallHeightDesc.toLowerCase()}, separata da profilo jolly metallico): ${describeTileSpecForPrompt(cfg.wallUpper, wallUpperSelector)}`
+    );
+  } else {
+    wallLines.push(
+      `- Rivestimento pareti generali (${wallHeightDesc}): ${describeTileSpecForPrompt(cfg.wall, wallSelector)}`
+    );
+  }
+
+  const segLabelMap = new Map(room.getBaseWallSegments().map((s) => [s.id, s.label]));
+  if (cfg.perWallSpecs && Object.keys(cfg.perWallSpecs).length > 0) {
+    for (const [wId, wSpec] of Object.entries(cfg.perWallSpecs)) {
+      const wName = segLabelMap.get(wId) || wId;
+      wallLines.push(
+        `- Parete singola personalizzata (${wName}): ${describeTileSpecForPrompt(wSpec, wallSelector)}`
+      );
+    }
+  }
+
+  if (cfg.vanityWallEnabled && cfg.vanityWall) {
+    const spanTxt =
+      cfg.vanityZoneSpan === 'centered'
+        ? 'fascia centrata dietro mobile e specchio'
+        : 'intera fascia parete zona mobile';
+    wallLines.push(
+      `- Fascia accento dietro Mobile Bagno (${spanTxt}): ${describeTileSpecForPrompt(cfg.vanityWall, vanityWallSelector)}`
+    );
+  }
+
+  if ((cfg.tileHeightMode || 'door') !== 'full') {
+    wallLines.push(
+      `- Intonaco / pittura murale sopra le piastrelle fino a 270 cm: ${paintObj.name} (${paintObj.hex})`
+    );
+  }
+
+  // Mobile bagno, doccia, sanitari e rubinetteria
+  const vanFinish = VANITY_FINISHES.find((f) => f.id === cfg.vanityFinishId) || VANITY_FINISHES[0];
+  const vanItem =
+    vanityCatalogSelector?.byId?.get(cfg.vanityModelId) ||
+    VANITY_MODELS.find((m) => m.id === cfg.vanityModelId) ||
+    VANITY_MODELS[0];
+  const vanPose = room.getVanityPoseAndAABB();
+  const vanDesc = `${vanItem?.title || vanItem?.name || 'Mobile bagno sospeso'} (finitura ${vanFinish.name}, posizionato su ${vanPose?.wallLabel || 'parete'}) con specchio retroilluminato`;
+
+  const metalMap = {
+    chrome: 'Cromo lucido',
+    black: 'Nero opaco',
+    brass: 'Ottone spazzolato',
+  };
+  const metalDesc = metalMap[cfg.metalFinish || 'chrome'] || 'Cromo lucido';
+
+  let showerDesc = 'Assente';
+  if (room.showerEnabled) {
+    const shBox = room.getShowerAABB();
+    const trayFin =
+      SHOWER_TRAY_FINISHES.find((t) => t.id === cfg.showerTrayFinishId) || SHOWER_TRAY_FINISHES[0];
+    const shHeightMap = {
+      'fixed-210': 'rivestimento doccia altezza 210 cm',
+      'fixed-270': 'rivestimento doccia tutta altezza 270 cm',
+      follow: 'rivestimento doccia allineato alle altre pareti',
+    };
+    showerDesc = `Box doccia walk-in / cristallo trasparente con piatto doccia ${room.getShowerDimensions(cfg.showerSize).label} cm in resina effetto pietra colore ${trayFin.name} (${shBox?.wall?.label || 'angolo'}, ${shHeightMap[cfg.showerTileHeightMode || 'fixed-210']})`;
+  }
+
+  const bp = room.getSanitaryPoseAndAABB('bidet');
+  const wp = room.getSanitaryPoseAndAABB('wc');
+  const sanitaryDesc = `WC sospeso in ceramica bianca (${wp?.wallLabel || 'parete'}) e Bidet sospeso con termoarredo scaldasalviette sopra (${bp?.wallLabel || 'parete'})`;
+
+  return [
+    `Genera un render fotorealistico di interior design (fotografia architettonica professionale 8K, materiali PBR realistici, riflessi fisici accurati, illuminazione globale naturale e ombre morbide) partendo dalla vista 3D del bagno allegata (o seguendo fedelmente la composizione descritta), mantenendo l'inquadratura, le proporzioni reali e la posizione esatta di tutti gli elementi.`,
+    ``,
+    `📐 AMBIENTE E INQUADRATURA:`,
+    `- Stanza: ${roomDesc}`,
+    `- Inquadratura: ${viewDesc}`,
+    `- Illuminazione: ${lightDesc}`,
+    ``,
+    `🟫 MODELLO PAVIMENTO USATO (da riprodurre fedelmente in scala reale):`,
+    `- ${floorDesc}`,
+    ``,
+    `🧱 MODELLI RIVESTIMENTI PARETI USATI (da riprodurre fedelmente per texture, venature, rilievi 3D e formato):`,
+    ...wallLines,
+    ``,
+    `🚿 ARREDO BAGNO, PIATTO DOCCIA E SANITARI:`,
+    `- Mobile bagno: ${vanDesc}`,
+    `- Box e piatto doccia: ${showerDesc}`,
+    `- Sanitari: ${sanitaryDesc}`,
+    `- Rubinetteria, profili jolly e dettagli metallici: ${metalDesc}`,
+    ``,
+    `✨ RICHIESTA AGGIUNTIVA:`,
+    `1. Crea l'immagine fotorealistica del bagno valorizzando la resa materica reale dei modelli di pavimento e rivestimenti indicati qui sopra (fughe sottili in tinta, riflessione superficiale matt/lappata/strutturata 3D fedele al modello).`,
+    `2. Nella risposta testuale riporta il riepilogo dei modelli di pavimenti e rivestimenti usati e suggerisci eventuali abbinamenti cromatici, stuccature (colore fuga) o dettagli di illuminazione per esaltarli al meglio.`,
+  ].join('\n');
+}
+
+function captureCleanSceneDataUrl() {
+  const prevGrid = room.gridUniform.value;
+  const prevHoverVis = room.hoverHighlightMesh?.visible;
+  const prevOutlineVis = room.fixtureOutlineMesh?.visible;
+  room.gridUniform.value = 0;
+  if (room.hoverHighlightMesh) room.hoverHighlightMesh.visible = false;
+  if (room.fixtureOutlineMesh) room.fixtureOutlineMesh.visible = false;
+
+  renderer.render(scene, camera);
+  const dataUrl = canvas.toDataURL('image/png');
+
+  room.gridUniform.value = prevGrid;
+  if (room.hoverHighlightMesh && typeof prevHoverVis === 'boolean') {
+    room.hoverHighlightMesh.visible = prevHoverVis;
+  }
+  if (room.fixtureOutlineMesh && typeof prevOutlineVis === 'boolean') {
+    room.fixtureOutlineMesh.visible = prevOutlineVis;
+  }
+  renderer.render(scene, camera);
+  return dataUrl;
+}
+
+async function copyTextToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand('copy');
+    } catch {
+      ok = false;
+    }
+    document.body.removeChild(ta);
+    return ok;
+  }
+}
+
+function launchGeminiTabWithPrompt(promptText) {
+  const geminiUrl = `https://gemini.google.com/app?prompt=${encodeURIComponent(promptText)}`;
+  window.open(geminiUrl, '_blank', 'noopener,noreferrer');
+}
+
+async function openGeminiRenderAssistant() {
+  lastGeminiCaptureDataUrl = captureCleanSceneDataUrl();
+  const promptText = buildGeminiRenderPrompt();
+
+  const modal = document.getElementById('gemini-modal');
+  const imgEl = document.getElementById('gemini-preview-img');
+  const promptEl = document.getElementById('gemini-prompt-textarea');
+
+  if (imgEl && lastGeminiCaptureDataUrl) {
+    imgEl.src = lastGeminiCaptureDataUrl;
+  }
+  if (promptEl) {
+    promptEl.value = promptText;
+  }
+  if (modal) {
+    modal.style.display = 'flex';
+  }
+
+  // Open Google Gemini immediately in a new browser tab (inside user click gesture) & copy prompt
+  launchGeminiTabWithPrompt(promptText);
+  await copyTextToClipboard(promptText);
+  showToast('✨ Prompt copiato negli appunti e Google Gemini aperto! Premi Ctrl+V in Gemini');
+}
+
 // Keyboard controls
 const KEY_MAP = {
   ArrowUp: 'forward',
@@ -854,6 +1088,13 @@ const KEY_MAP = {
 };
 
 window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const gm = document.getElementById('gemini-modal');
+    if (gm && gm.style.display !== 'none') {
+      gm.style.display = 'none';
+      return;
+    }
+  }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
     e.preventDefault();
     performUndo();
@@ -1699,9 +1940,59 @@ function initUI() {
     }
   });
 
-  // Photo download button
+  // Photo download, BOM export & Google Gemini Render buttons
   document.getElementById('btn-download-photo')?.addEventListener('click', downloadActiveViewPhoto);
   document.getElementById('btn-export-bom')?.addEventListener('click', downloadBomCsv);
+  document.getElementById('btn-gemini-render')?.addEventListener('click', openGeminiRenderAssistant);
+
+  const closeGeminiModal = () => {
+    const modal = document.getElementById('gemini-modal');
+    if (modal) modal.style.display = 'none';
+  };
+  document.getElementById('btn-close-gemini-modal')?.addEventListener('click', closeGeminiModal);
+  document.getElementById('btn-gemini-cancel')?.addEventListener('click', closeGeminiModal);
+  document.getElementById('gemini-modal')?.addEventListener('click', (e) => {
+    if (e.target?.id === 'gemini-modal') closeGeminiModal();
+  });
+
+  document.getElementById('btn-gemini-copy-prompt')?.addEventListener('click', async () => {
+    const promptEl = document.getElementById('gemini-prompt-textarea');
+    const txt = promptEl ? promptEl.value : buildGeminiRenderPrompt();
+    await copyTextToClipboard(txt);
+    showToast('📋 Prompt con modelli pavimenti e rivestimenti copiato negli appunti!');
+  });
+
+  document.getElementById('btn-gemini-open-tab')?.addEventListener('click', async () => {
+    const promptEl = document.getElementById('gemini-prompt-textarea');
+    const txt = promptEl ? promptEl.value : buildGeminiRenderPrompt();
+    launchGeminiTabWithPrompt(txt);
+    await copyTextToClipboard(txt);
+    showToast('✨ Prompt copiato e Google Gemini aperto! Premi Ctrl+V in Gemini');
+  });
+
+  document.getElementById('btn-gemini-download-img')?.addEventListener('click', () => {
+    const dataUrl = lastGeminiCaptureDataUrl || captureCleanSceneDataUrl();
+    const roomSlug = appState.activeRoom === 'first' ? 'primo-piano-5.55mq' : 'pianterreno-4.68mq';
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = `vista-3d-gemini-${roomSlug}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('📥 Immagine 3D scaricata — allegala nella chat di Google Gemini!');
+  });
+
+  document.getElementById('btn-gemini-copy-img')?.addEventListener('click', async () => {
+    try {
+      const dataUrl = lastGeminiCaptureDataUrl || captureCleanSceneDataUrl();
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      showToast('🖼️ Immagine 3D copiata negli appunti! Incollala in Gemini con Ctrl+V');
+    } catch {
+      showToast('⚠️ Copia diretta immagine non supportata dal browser: usa "📥 Scarica PNG"');
+    }
+  });
 
   // Tabs
   document.querySelectorAll('.tab-btn').forEach((btn) => {
