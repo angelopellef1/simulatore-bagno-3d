@@ -80,6 +80,7 @@ function createDefaultRoomConfig(roomKey = 'ground') {
     tileHeightMode: 'door',
     showerTileHeightMode: 'fixed-210',
     paintId: PAINT_COLORS[0].id,
+    paintCustomHex: PAINT_COLORS[0].hex,
     vanityWallEnabled: false,
     vanityWall: { key: `preset:${WALL_PRESETS[1].id}`, rotated90: false },
     vanityZoneSpan: 'window-to-wall',
@@ -210,6 +211,7 @@ function getCurrentRoomState() {
       base.tileHeightMode = src.tileHeightMode;
       base.showerTileHeightMode = src.showerTileHeightMode || 'fixed-210';
       base.paintId = src.paintId;
+      base.paintCustomHex = src.paintCustomHex || PAINT_COLORS[0].hex;
       base.vanityWallEnabled = src.vanityWallEnabled;
       base.vanityWall = JSON.parse(JSON.stringify(src.vanityWall));
       base.vanityZoneSpan = src.vanityZoneSpan;
@@ -221,6 +223,71 @@ function getCurrentRoomState() {
     appState.rooms[appState.activeRoom] = base;
   }
   return appState.rooms[appState.activeRoom];
+}
+
+function normalizeHexColor(val, fallback = '#f4f1ea') {
+  if (typeof val !== 'string') return fallback;
+  const trimmed = val.trim();
+  const m6 = /^#?([0-9a-fA-F]{6})$/.exec(trimmed);
+  if (m6) return `#${m6[1].toLowerCase()}`;
+  const m3 = /^#?([0-9a-fA-F]{3})$/.exec(trimmed);
+  if (m3) {
+    const [r, g, b] = m3[1].toLowerCase().split('');
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  return fallback;
+}
+
+function resolvePaintInfo(cfg) {
+  if (cfg?.paintId === 'custom') {
+    const hex = normalizeHexColor(cfg.paintCustomHex, PAINT_COLORS[0].hex);
+    return {
+      id: 'custom',
+      name: 'Colore personalizzato',
+      hex,
+      isCustom: true,
+    };
+  }
+  const preset = PAINT_COLORS.find((p) => p.id === cfg?.paintId) || PAINT_COLORS[0];
+  return { ...preset, isCustom: false };
+}
+
+function syncPaintPickerUI(cfg = getCurrentRoomState()) {
+  const paintInfo = resolvePaintInfo(cfg);
+  const hexUpper = paintInfo.hex.toUpperCase();
+
+  document.querySelectorAll('#paint-colors .color-dot').forEach((d) => {
+    d.classList.toggle('active', !paintInfo.isCustom && d.dataset.paintId === paintInfo.id);
+  });
+
+  const freeSwatch = document.getElementById('paint-free-swatch');
+  const freeInner = document.getElementById('paint-free-inner');
+  const colorPicker = document.getElementById('paint-color-picker');
+  const hexInput = document.getElementById('paint-hex-input');
+  const activeLbl = document.getElementById('paint-active-label');
+
+  if (freeSwatch) freeSwatch.classList.toggle('active', paintInfo.isCustom);
+  if (freeInner) freeInner.style.backgroundColor = paintInfo.hex;
+  if (colorPicker && colorPicker.value.toLowerCase() !== paintInfo.hex.toLowerCase()) {
+    colorPicker.value = paintInfo.hex;
+  }
+  if (hexInput && document.activeElement !== hexInput) {
+    hexInput.value = hexUpper;
+  }
+  if (activeLbl) {
+    const shortName = paintInfo.isCustom ? 'Libero' : paintInfo.name;
+    activeLbl.textContent = `${shortName} · ${hexUpper}`;
+  }
+
+  const paintSection = document.getElementById('paint-color-section');
+  if (paintSection) {
+    const allWallsFull =
+      cfg.tileHeightMode === 'full' &&
+      (!room.showerEnabled ||
+        cfg.showerTileHeightMode === 'fixed-270' ||
+        cfg.showerTileHeightMode === 'follow');
+    paintSection.style.opacity = allWallsFull ? '0.52' : '1';
+  }
 }
 
 let toastTimer = null;
@@ -654,6 +721,8 @@ function getCoveringBomAreaGroups(config) {
         tileTop = 2.1;
       } else if (config.tileHeightMode === 'half') {
         tileTop = 1.2;
+      } else if (config.tileHeightMode === 'none') {
+        tileTop = 0;
       }
 
       const t0 = patch.y0;
@@ -743,18 +812,18 @@ function buildBomRows() {
     );
   }
 
-  const paint = PAINT_COLORS.find((entry) => entry.id === config.paintId) || PAINT_COLORS[0];
+  const paint = resolvePaintInfo(config);
   if (wallBom.paintArea > 0.001) {
     addRow({
       Categoria: 'Pittura',
-      Voce: paint.name,
-      SKU: paint.id,
+      Voce: paint.isCustom ? `Pittura murale colore ${paint.hex.toUpperCase()}` : paint.name,
+      SKU: paint.isCustom ? `HEX-${paint.hex.slice(1).toUpperCase()}` : paint.id,
       'Quantità netta': formatCsvNumber(wallBom.paintArea),
       Unità: 'm²',
       Sfrido: '10%',
       'Quantità ordine': formatCsvNumber(wallBom.paintArea * 1.1),
-      'Finitura / colore': paint.hex,
-      Note: 'area netta sopra i rivestimenti; verificare resa e mano di fondo',
+      'Finitura / colore': paint.hex.toUpperCase(),
+      Note: 'area netta pittura pareti; verificare resa e mano di fondo',
     });
   }
 
@@ -920,12 +989,17 @@ function buildGeminiRenderPrompt() {
     h240: 'Altezza lastra standard (240 cm)',
     door: 'Altezza filo porta (210 cm)',
     half: 'Altezza boiserie (120 cm)',
+    none: 'Solo pittura murale sulle pareti generali (0 cm piastrelle)',
   };
   const wallHeightDesc = heightModeMap[cfg.tileHeightMode || 'door'] || heightModeMap.door;
-  const paintObj = PAINT_COLORS.find((p) => p.id === cfg.paintId) || PAINT_COLORS[0];
+  const paintObj = resolvePaintInfo(cfg);
 
   const wallLines = [];
-  if (cfg.wallSplitEnabled) {
+  if (cfg.tileHeightMode === 'none') {
+    wallLines.push(
+      `- Pareti generali senza piastrelle: interamente tinteggiate con pittura murale opaca ${paintObj.name} (${paintObj.hex.toUpperCase()}) da 0 a 270 cm`
+    );
+  } else if (cfg.wallSplitEnabled) {
     wallLines.push(
       `- Fascia inferiore pareti (da 0 a 120 cm): ${describeTileSpecForPrompt(cfg.wall, wallSelector)}`
     );
@@ -962,9 +1036,9 @@ function buildGeminiRenderPrompt() {
     );
   }
 
-  if ((cfg.tileHeightMode || 'door') !== 'full') {
+  if ((cfg.tileHeightMode || 'door') !== 'full' && cfg.tileHeightMode !== 'none') {
     wallLines.push(
-      `- Intonaco / pittura murale sopra le piastrelle fino a 270 cm: ${paintObj.name} (${paintObj.hex})`
+      `- Intonaco / pittura murale sopra le piastrelle fino a 270 cm: ${paintObj.name} (${paintObj.hex.toUpperCase()})`
     );
   }
 
@@ -1846,8 +1920,6 @@ async function applyRoomConfigToSceneAndUI(roomKey, { resetCamera = true } = {})
   document.querySelectorAll('#tile-height-group .pill-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.height === (cfg.tileHeightMode || 'door'));
   });
-  document.getElementById('paint-color-section').style.opacity =
-    cfg.tileHeightMode === 'full' ? '0.45' : '1';
 
   const shHeight = cfg.showerTileHeightMode || 'fixed-210';
   room.setShowerTileHeightMode(shHeight);
@@ -1864,11 +1936,9 @@ async function applyRoomConfigToSceneAndUI(roomKey, { resetCamera = true } = {})
     d.classList.toggle('active', d.dataset.trayFinishId === trayFinishObj.id);
   });
 
-  const paintObj = PAINT_COLORS.find((p) => p.id === cfg.paintId) || PAINT_COLORS[0];
-  room.setPaintColor(paintObj.hex);
-  document.querySelectorAll('#paint-colors .color-dot').forEach((d) => {
-    d.classList.toggle('active', d.dataset.paintId === paintObj.id);
-  });
+  const paintInfo = resolvePaintInfo(cfg);
+  room.setPaintColor(paintInfo.hex);
+  syncPaintPickerUI(cfg);
 
   // Vanity wall options
   room.setVanityWallOptions({
@@ -2383,8 +2453,7 @@ function initUI() {
       heightGroup.querySelectorAll('.pill-btn').forEach((b) => {
         b.classList.toggle('active', b === btn);
       });
-      document.getElementById('paint-color-section').style.opacity =
-        mode === 'full' ? '0.45' : '1';
+      syncPaintPickerUI();
       saveAppState('Altezza piastrelle pareti');
     });
   });
@@ -2419,6 +2488,7 @@ function initUI() {
       .forEach((b) => {
         b.classList.toggle('active', b.dataset.sheight === smode);
       });
+    syncPaintPickerUI();
     saveAppState('Altezza piastrelle doccia');
   };
 
@@ -2450,25 +2520,117 @@ function initUI() {
     });
   }
 
-  // Upper wall paint colors
+  // Upper / full wall paint colors (quick presets + free color picker + HEX input)
   const paintContainer = document.getElementById('paint-colors');
+  const notifyIfPaintHidden = () => {
+    const cfg = getCurrentRoomState();
+    if (
+      cfg.tileHeightMode === 'full' &&
+      (!room.showerEnabled ||
+        cfg.showerTileHeightMode === 'fixed-270' ||
+        cfg.showerTileHeightMode === 'follow')
+    ) {
+      showToast(
+        '🎨 Pittura impostata — scegli Altezza 240, 210, 120 o Pittura 0 per vederla sulle pareti'
+      );
+    }
+  };
+
   PAINT_COLORS.forEach((col) => {
     const dot = document.createElement('button');
     dot.className = 'color-dot';
     dot.dataset.paintId = col.id;
     dot.style.backgroundColor = col.hex;
-    dot.title = col.name;
+    dot.title = `${col.name} (${col.hex.toUpperCase()})`;
     dot.addEventListener('click', () => {
-      if (getCurrentRoomState().paintId === col.id) return;
-      recordUndoSnapshot(`Intonaco ${col.name}`);
-      getCurrentRoomState().paintId = col.id;
+      const cfg = getCurrentRoomState();
+      if (cfg.paintId === col.id) return;
+      recordUndoSnapshot(`Pittura ${col.name}`);
+      cfg.paintId = col.id;
+      cfg.paintCustomHex = col.hex;
       room.setPaintColor(col.hex);
-      paintContainer.querySelectorAll('.color-dot').forEach((d) => d.classList.remove('active'));
-      dot.classList.add('active');
-      saveAppState(`Intonaco ${col.name}`);
+      syncPaintPickerUI(cfg);
+      saveAppState(`Pittura ${col.name}`);
+      notifyIfPaintHidden();
     });
     paintContainer.appendChild(dot);
   });
+
+  const paintColorPicker = document.getElementById('paint-color-picker');
+  const paintHexInput = document.getElementById('paint-hex-input');
+  let paintPickerSnapshotTaken = false;
+
+  if (paintColorPicker) {
+    paintColorPicker.addEventListener('input', (e) => {
+      const hex = normalizeHexColor(e.target.value, PAINT_COLORS[0].hex);
+      const cfg = getCurrentRoomState();
+      if (!paintPickerSnapshotTaken) {
+        recordUndoSnapshot(`Pittura ${hex.toUpperCase()}`);
+        paintPickerSnapshotTaken = true;
+      }
+      cfg.paintId = 'custom';
+      cfg.paintCustomHex = hex;
+      room.setPaintColor(hex);
+      syncPaintPickerUI(cfg);
+      if (paintHexInput) paintHexInput.value = hex.toUpperCase();
+    });
+
+    paintColorPicker.addEventListener('change', (e) => {
+      const hex = normalizeHexColor(e.target.value, PAINT_COLORS[0].hex);
+      paintPickerSnapshotTaken = false;
+      const cfg = getCurrentRoomState();
+      cfg.paintId = 'custom';
+      cfg.paintCustomHex = hex;
+      room.setPaintColor(hex);
+      syncPaintPickerUI(cfg);
+      saveAppState(`Pittura ${hex.toUpperCase()}`);
+      notifyIfPaintHidden();
+    });
+  }
+
+  if (paintHexInput) {
+    const commitHexInput = () => {
+      const cfg = getCurrentRoomState();
+      const prevInfo = resolvePaintInfo(cfg);
+      const hex = normalizeHexColor(paintHexInput.value, prevInfo.hex);
+      paintHexInput.value = hex.toUpperCase();
+      if (prevInfo.isCustom && prevInfo.hex.toLowerCase() === hex.toLowerCase()) {
+        syncPaintPickerUI(cfg);
+        return;
+      }
+      if (!prevInfo.isCustom && prevInfo.hex.toLowerCase() === hex.toLowerCase()) {
+        syncPaintPickerUI(cfg);
+        return;
+      }
+      recordUndoSnapshot(`Pittura ${hex.toUpperCase()}`);
+      cfg.paintId = 'custom';
+      cfg.paintCustomHex = hex;
+      room.setPaintColor(hex);
+      syncPaintPickerUI(cfg);
+      saveAppState(`Pittura ${hex.toUpperCase()}`);
+      notifyIfPaintHidden();
+    };
+
+    paintHexInput.addEventListener('input', () => {
+      const raw = paintHexInput.value.trim();
+      if (/^#?([0-9a-fA-F]{6})$/.test(raw)) {
+        const hex = normalizeHexColor(raw);
+        room.setPaintColor(hex);
+        const freeInner = document.getElementById('paint-free-inner');
+        if (freeInner) freeInner.style.backgroundColor = hex;
+        if (paintColorPicker) paintColorPicker.value = hex;
+      }
+    });
+
+    paintHexInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        paintHexInput.blur();
+      }
+    });
+
+    paintHexInput.addEventListener('blur', commitHexInput);
+  }
 
   // Vanity finishes
   const finishContainer = document.getElementById('vanity-finishes');

@@ -887,6 +887,8 @@ if (uGrid > 0.5) {
           tileTop = 2.1;
         } else if (this.tileHeightMode === 'half') {
           tileTop = 1.2;
+        } else if (this.tileHeightMode === 'none') {
+          tileTop = 0;
         }
 
         const showerWallKey = `shower:${def.id}`;
@@ -987,7 +989,9 @@ if (uGrid > 0.5) {
               ? 2.4
               : this.tileHeightMode === 'door'
                 ? 2.1
-                : 1.2;
+                : this.tileHeightMode === 'half'
+                  ? 1.2
+                  : 0;
         if (patch.showerPatch && Math.abs(t1 - generalTop) > 0.02) {
           const ux = dx / len;
           const uz = dz / len;

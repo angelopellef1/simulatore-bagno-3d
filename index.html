@@ -155,10 +155,11 @@
           <div class="wall-top-options">
             <label class="sub-label">Altezza posa piastrelle (pareti)</label>
             <div class="pill-group" id="tile-height-group">
-              <button class="pill-btn" data-height="full" title="Rivestimento a tutta altezza fino al soffitto (270 cm)">Tutta (270)</button>
-              <button class="pill-btn" data-height="h240" title="Rivestimento ad altezza lastra standard (240 cm)">Lastra (240)</button>
-              <button class="pill-btn active" data-height="door" title="Rivestimento ad altezza filo porta (210 cm)">Porta (210)</button>
-              <button class="pill-btn" data-height="half" title="Rivestimento ad altezza boiserie (120 cm)">Boiserie (120)</button>
+              <button class="pill-btn" data-height="full" title="Rivestimento a tutta altezza fino al soffitto (270 cm)">Tutta 270</button>
+              <button class="pill-btn" data-height="h240" title="Rivestimento ad altezza lastra standard (240 cm)">Lastra 240</button>
+              <button class="pill-btn active" data-height="door" title="Rivestimento ad altezza filo porta (210 cm)">Porta 210</button>
+              <button class="pill-btn" data-height="half" title="Rivestimento ad altezza boiserie (120 cm)">Boiserie 120</button>
+              <button class="pill-btn" data-height="none" title="Solo pittura sulle pareti generali (0 cm piastrelle)">Pittura 0</button>
             </div>
 
             <div id="shower-height-wrap" style="margin-top:9px">
@@ -179,9 +180,36 @@
               </div>
             </div>
 
-            <div class="paint-inline" id="paint-color-section">
-              <span class="sub-label-inline">Pittura:</span>
-              <div class="color-dots compact" id="paint-colors"></div>
+            <div class="paint-picker-box" id="paint-color-section">
+              <div class="paint-picker-header">
+                <span class="sub-label-inline">🎨 Pittura pareti:</span>
+                <span class="paint-active-name" id="paint-active-label">Bianco Caldo · #F4F1EA</span>
+              </div>
+              <div class="paint-picker-controls">
+                <div class="color-dots compact" id="paint-colors"></div>
+                <div class="paint-free-picker-wrap">
+                  <label class="paint-free-swatch" id="paint-free-swatch" title="Scegli liberamente qualsiasi colore per la pittura pareti">
+                    <input
+                      type="color"
+                      id="paint-color-picker"
+                      value="#f4f1ea"
+                      aria-label="Selettore colore libero pittura pareti"
+                    />
+                    <span class="paint-free-inner" id="paint-free-inner"></span>
+                    <span class="paint-free-badge">🎨</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="paint-hex-input"
+                    class="paint-hex-input"
+                    value="#F4F1EA"
+                    maxlength="7"
+                    spellcheck="false"
+                    aria-label="Codice colore HEX pittura pareti"
+                    title="Inserisci un codice colore esadecimale (es. #DCE4DC)"
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
